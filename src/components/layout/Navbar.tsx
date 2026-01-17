@@ -9,18 +9,22 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { useAuth } from "@/contexts/AuthContext";
+import { useToast } from "@/hooks/use-toast";
 
-interface NavbarProps {
-  isAuthenticated?: boolean;
-  onLogout?: () => void;
-}
-
-export function Navbar({ isAuthenticated = false, onLogout }: NavbarProps) {
+export function Navbar() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const navigate = useNavigate();
+  const { user, signOut } = useAuth();
+  const { toast } = useToast();
+  const isAuthenticated = !!user;
 
-  const handleLogout = () => {
-    onLogout?.();
+  const handleLogout = async () => {
+    await signOut();
+    toast({
+      title: "Signed out",
+      description: "You have been signed out successfully.",
+    });
     navigate("/");
   };
 

@@ -69,10 +69,6 @@ export default function Dashboard() {
   const videosUsed = 8;
   const videosLimit = 30;
 
-  const handleLogout = () => {
-    navigate("/");
-  };
-
   const filteredVideos = mockVideos.filter((video) => {
     const matchesSearch = video.address.toLowerCase().includes(searchQuery.toLowerCase());
     const matchesStatus = statusFilter === "all" || video.status === statusFilter;
@@ -81,7 +77,7 @@ export default function Dashboard() {
 
   return (
     <div className="min-h-screen bg-background">
-      <Navbar isAuthenticated onLogout={handleLogout} />
+      <Navbar />
 
       <main className="pt-20 pb-12">
         {/* Usage Banner */}

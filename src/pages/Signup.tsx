@@ -1,10 +1,11 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Eye, EyeOff, Video, Loader2, Check } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/contexts/AuthContext";
 
 export default function Signup() {
   const [email, setEmail] = useState("");
@@ -13,6 +14,14 @@ export default function Signup() {
   const [isLoading, setIsLoading] = useState(false);
   const navigate = useNavigate();
   const { toast } = useToast();
+  const { signUp, user, loading } = useAuth();
+
+  // Redirect if already authenticated
+  useEffect(() => {
+    if (!loading && user) {
+      navigate("/dashboard");
+    }
+  }, [user, loading, navigate]);
 
   const passwordRequirements = [
     { label: "At least 8 characters", met: password.length >= 8 },
@@ -28,16 +37,43 @@ export default function Signup() {
     
     setIsLoading(true);
 
-    // Simulate signup - will be replaced with Supabase auth
-    setTimeout(() => {
-      setIsLoading(false);
+    const { error } = await signUp(email, password);
+    
+    setIsLoading(false);
+
+    if (error) {
+      let errorMessage = "Failed to create account. Please try again.";
+      
+      if (error.message.includes("User already registered")) {
+        errorMessage = "An account with this email already exists. Try signing in instead.";
+      } else if (error.message.includes("Invalid email")) {
+        errorMessage = "Please enter a valid email address.";
+      } else if (error.message.includes("Password")) {
+        errorMessage = error.message;
+      }
+      
       toast({
-        title: "Account created!",
-        description: "Welcome to Listing Flow. Let's create your first video!",
+        title: "Sign up failed",
+        description: errorMessage,
+        variant: "destructive",
       });
-      navigate("/dashboard");
-    }, 1500);
+      return;
+    }
+
+    toast({
+      title: "Account created!",
+      description: "Please check your email to confirm your account, then sign in.",
+    });
+    navigate("/login");
   };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <Loader2 className="w-8 h-8 animate-spin text-primary" />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-background flex items-center justify-center p-6">
