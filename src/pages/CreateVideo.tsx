@@ -201,7 +201,7 @@ export default function CreateVideo() {
 
   return (
     <div className="min-h-screen bg-background">
-      <Navbar isAuthenticated onLogout={() => navigate("/")} />
+      <Navbar />
 
       {/* Generating Overlay */}
       {isGenerating && (

@@ -89,7 +89,7 @@ export default function Settings() {
 
   return (
     <div className="min-h-screen bg-background">
-      <Navbar isAuthenticated onLogout={() => navigate("/")} />
+      <Navbar />
 
       <main className="pt-20 pb-12">
         <div className="container mx-auto px-6 max-w-4xl">
