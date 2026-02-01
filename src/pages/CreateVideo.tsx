@@ -14,13 +14,13 @@ import {
   PropertyDetails,
   CustomizationSettings,
 } from "@/components/create-video";
+import { ScriptGeneratorSection } from "@/components/create-video/ScriptGeneratorSection";
 
 export default function CreateVideo() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const { toast } = useToast();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [selectedTemplate, setSelectedTemplate] = useState("modern");
 
   // Form state
   const [propertyDetails, setPropertyDetails] = useState<PropertyDetails>({
@@ -36,16 +36,22 @@ export default function CreateVideo() {
   });
 
   const [photos, setPhotos] = useState<File[]>([]);
+  const [script, setScript] = useState("");
 
   const [customization, setCustomization] = useState<CustomizationSettings>({
     includeVoiceover: true,
     voiceType: "Australian Male",
     musicStyle: "Cinematic & Epic",
     musicTrack: "Horizon - Epic Journey",
-    agentName: "",
-    phone: "",
     colorScheme: "purple",
     logoUrl: null,
+    selectedTemplate: "modern-luxe",
+    agentInfo: {
+      photo: null,
+      name: "",
+      phone: "",
+      email: "",
+    },
   });
 
   // Generation state
@@ -67,6 +73,7 @@ export default function CreateVideo() {
       features: [],
     });
     setPhotos([]);
+    setScript("");
     setVideoReady(false);
     setError(null);
   };
@@ -168,8 +175,10 @@ export default function CreateVideo() {
         <div className="hidden lg:block">
           <LeftSidebar
             onNewVideo={handleNewVideo}
-            selectedTemplate={selectedTemplate}
-            onSelectTemplate={setSelectedTemplate}
+            selectedTemplate={customization.selectedTemplate}
+            onSelectTemplate={(templateId) =>
+              setCustomization((prev) => ({ ...prev, selectedTemplate: templateId }))
+            }
           />
         </div>
 
@@ -191,6 +200,15 @@ export default function CreateVideo() {
                 onChange={setPhotos}
                 minPhotos={10}
                 maxPhotos={20}
+              />
+            </div>
+
+            {/* Script Generator */}
+            <div className="bg-card rounded-xl border border-border p-6">
+              <ScriptGeneratorSection
+                propertyDetails={propertyDetails}
+                script={script}
+                onScriptChange={setScript}
               />
             </div>
 

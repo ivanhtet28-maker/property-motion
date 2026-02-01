@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { ChevronDown, Settings, Mic, Music, Palette, Play, SkipForward, Upload } from "lucide-react";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
@@ -16,16 +15,25 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
+import { VideoTemplateSelector } from "./VideoTemplateSelector";
+import { AgentPhotoUpload } from "./AgentPhotoUpload";
+
+export interface AgentInfo {
+  photo: string | null;
+  name: string;
+  phone: string;
+  email: string;
+}
 
 export interface CustomizationSettings {
   includeVoiceover: boolean;
   voiceType: string;
   musicStyle: string;
   musicTrack: string;
-  agentName: string;
-  phone: string;
   colorScheme: string;
   logoUrl: string | null;
+  selectedTemplate: string;
+  agentInfo: AgentInfo;
 }
 
 const voiceOptions = [
@@ -89,6 +97,16 @@ export function CustomizationSection({ settings, onChange }: CustomizationSectio
         </CollapsibleTrigger>
 
         <CollapsibleContent className="pt-4 space-y-6">
+          {/* Video Template Selection */}
+          <div className="p-4 bg-secondary/30 rounded-xl">
+            <VideoTemplateSelector
+              selectedTemplate={settings.selectedTemplate}
+              onSelectTemplate={(templateId) =>
+                onChange({ ...settings, selectedTemplate: templateId })
+              }
+            />
+          </div>
+
           {/* Voiceover Section */}
           <div className="space-y-4 p-4 bg-secondary/30 rounded-xl">
             <div className="flex items-center justify-between">
@@ -221,26 +239,11 @@ export function CustomizationSection({ settings, onChange }: CustomizationSectio
               <span className="text-xs text-muted-foreground">Save as default</span>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label className="text-sm text-muted-foreground">Agent Name</Label>
-                <Input
-                  placeholder="Your Name"
-                  value={settings.agentName}
-                  onChange={(e) => onChange({ ...settings, agentName: e.target.value })}
-                  className="h-10"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label className="text-sm text-muted-foreground">Phone</Label>
-                <Input
-                  placeholder="0449 088 584"
-                  value={settings.phone}
-                  onChange={(e) => onChange({ ...settings, phone: e.target.value })}
-                  className="h-10"
-                />
-              </div>
-            </div>
+            {/* Agent Photo & Details */}
+            <AgentPhotoUpload
+              agentInfo={settings.agentInfo}
+              onChange={(agentInfo) => onChange({ ...settings, agentInfo })}
+            />
 
             <div className="space-y-2">
               <Label className="text-sm text-muted-foreground">Logo</Label>
