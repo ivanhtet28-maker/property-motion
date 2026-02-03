@@ -1,4 +1,4 @@
-// Edge function for video generation - redeployed 2026-02-03T07:55
+// Edge function for video generation
 /// <reference types="https://esm.sh/@supabase/functions-js/src/edge-runtime.d.ts" />
 
 const corsHeaders = {
@@ -24,7 +24,8 @@ interface GenerateVideoRequest {
   music: string;
 }
 
-const RUNWAY_API_URL = "https://api.runwayml.com/v1"; // Video generation API
+// Official Runway API endpoint
+const RUNWAY_API_URL = "https://api.runwayml.com/v1";
 
 Deno.serve(async (req) => {
   // Handle CORS preflight requests
@@ -38,7 +39,7 @@ Deno.serve(async (req) => {
     if (!runwayApiKey) {
       console.error("RUNWAY_API_KEY not configured");
       return new Response(
-        JSON.stringify({ error: "Video generation service not configured" }),
+        JSON.stringify({ error: "Video generation service not configured. Please add RUNWAY_API_KEY secret." }),
         {
           status: 500,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -53,8 +54,6 @@ Deno.serve(async (req) => {
     console.log("- First image URL:", imageUrls?.[0]?.substring(0, 100) || "none");
     console.log("- Property address:", propertyData?.address || "none");
     console.log("- Style:", style);
-    console.log("- Voice:", voice);
-    console.log("- Music:", music);
 
     // Validate input
     if (!imageUrls || imageUrls.length < 5) {
@@ -93,7 +92,20 @@ Deno.serve(async (req) => {
     }
     
     console.log("Calling Runway API for image-to-video generation...");
+    console.log("- API URL:", `${RUNWAY_API_URL}/image_to_video`);
     console.log("- Using image URL:", firstImageUrl);
+    console.log("- API Key prefix:", runwayApiKey.substring(0, 10) + "...");
+    
+    // Build request body according to Runway API docs
+    const requestBody = {
+      model: "gen4_turbo",
+      promptImage: firstImageUrl,
+      promptText: propertyData.description.substring(0, 1000),
+      ratio: "720:1280", // 9:16 vertical format
+      duration: 5,
+    };
+    
+    console.log("Request body:", JSON.stringify(requestBody));
     
     // Call Runway API to generate video from first image
     const runwayResponse = await fetch(`${RUNWAY_API_URL}/image_to_video`, {
@@ -103,26 +115,39 @@ Deno.serve(async (req) => {
         "Authorization": `Bearer ${runwayApiKey}`,
         "X-Runway-Version": "2024-11-06",
       },
-      body: JSON.stringify({
-        model: "gen4_turbo",
-        promptImage: firstImageUrl,
-        promptText: propertyData.description.substring(0, 512),
-        ratio: "720:1280", // 9:16 vertical
-        duration: 5,
-      }),
+      body: JSON.stringify(requestBody),
     });
 
+    // Get response as text first to handle HTML error pages
+    const responseText = await runwayResponse.text();
+    console.log("Runway API response status:", runwayResponse.status);
+    console.log("Runway API response (first 500 chars):", responseText.substring(0, 500));
+
+    // Check if response is HTML (error page)
+    if (responseText.startsWith("<!DOCTYPE") || responseText.startsWith("<html")) {
+      console.error("Runway API returned HTML instead of JSON - likely invalid endpoint or auth issue");
+      return new Response(
+        JSON.stringify({ 
+          error: "Runway API returned an error page. Please verify your RUNWAY_API_KEY is valid.",
+          details: "The API endpoint may be incorrect or the API key may be invalid."
+        }),
+        {
+          status: 500,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        }
+      );
+    }
+
     if (!runwayResponse.ok) {
-      const errorText = await runwayResponse.text();
-      console.error("Runway API error:", runwayResponse.status, errorText);
+      console.error("Runway API error:", runwayResponse.status, responseText);
       
-      // Parse error for better messaging
+      // Try to parse error message
       let errorMessage = "Failed to start video generation";
       try {
-        const errorJson = JSON.parse(errorText);
+        const errorJson = JSON.parse(responseText);
         errorMessage = errorJson.error || errorJson.message || errorMessage;
       } catch {
-        // Use default message
+        errorMessage = responseText.substring(0, 200);
       }
       
       return new Response(
@@ -134,7 +159,21 @@ Deno.serve(async (req) => {
       );
     }
 
-    const runwayData = await runwayResponse.json();
+    // Parse successful JSON response
+    let runwayData;
+    try {
+      runwayData = JSON.parse(responseText);
+    } catch (e) {
+      console.error("Failed to parse Runway response as JSON:", e);
+      return new Response(
+        JSON.stringify({ error: "Invalid response from video service" }),
+        {
+          status: 500,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        }
+      );
+    }
+    
     console.log("Runway API response:", JSON.stringify(runwayData));
 
     const jobId = runwayData.id;
