@@ -15,6 +15,7 @@ import {
   CustomizationSettings,
 } from "@/components/create-video";
 import { ScriptGeneratorSection } from "@/components/create-video/ScriptGeneratorSection";
+import { compressImages } from "@/utils/imageCompression";
 
 export default function CreateVideo() {
   const navigate = useNavigate();
@@ -79,16 +80,6 @@ export default function CreateVideo() {
     setError(null);
   };
 
-  // Convert File to base64 data URL
-  const fileToDataUrl = (file: File): Promise<string> => {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(reader.result as string);
-      reader.onerror = reject;
-      reader.readAsDataURL(file);
-    });
-  };
-
   const handleGenerate = async () => {
     if (photos.length < 5) {
       setError(`Need at least 5 photos (you have ${photos.length})`);
@@ -101,8 +92,12 @@ export default function CreateVideo() {
     setVideoJobId(null);
 
     try {
-      // Convert photos to data URLs
-      const imageUrls = await Promise.all(photos.map(fileToDataUrl));
+      // Compress photos to reduce payload size (800px max, 70% quality)
+      console.log("Compressing images...");
+      const imageUrls = await compressImages(photos, 800, 0.7);
+      console.log("Images compressed, total size:", 
+        Math.round(imageUrls.reduce((acc, url) => acc + url.length, 0) / 1024) + "KB"
+      );
       
       // Use the script if available, otherwise use default
       const videoScript = script || "This is a beautiful property with great features";
