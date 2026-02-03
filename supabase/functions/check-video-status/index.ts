@@ -8,7 +8,8 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-const SHOTSTACK_API_URL = "https://api.shotstack.io/v1";
+// Use stage API for sandbox keys, production for live keys
+const SHOTSTACK_API_URL = "https://api.shotstack.io/stage";
 
 interface CheckStatusRequest {
   jobId: string;
