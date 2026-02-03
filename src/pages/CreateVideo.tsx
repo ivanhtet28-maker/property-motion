@@ -5,6 +5,7 @@ import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
+import { supabase } from "@/lib/supabase";
 import {
   LeftSidebar,
   PropertyDetailsForm,
@@ -111,28 +112,18 @@ export default function CreateVideo() {
       // Step 2: Use the script if available, otherwise use default
       const videoScript = script || "This is a beautiful property with great features";
 
-      // Step 3: Call generate-video with URLs (not base64)
+      // Step 3: Call generate-video using Supabase client
       console.log("Calling generate-video API...");
-      const response = await fetch(
-        "https://pxhpfewunsetuxygeprp.supabase.co/functions/v1/generate-video",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": "Bearer sb_publishable_dZfmgOW6Z1N2FYNtiaDLMQ_Q27bxxAQ",
-          },
-          body: JSON.stringify({
-            images: imageUrls,
-            script: videoScript,
-            aspectRatio: "9:16",
-          }),
-        }
-      );
+      const { data, error: fnError } = await supabase.functions.invoke("generate-video", {
+        body: {
+          images: imageUrls,
+          script: videoScript,
+          aspectRatio: "9:16",
+        },
+      });
 
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || "Failed to generate video");
+      if (fnError) {
+        throw new Error(fnError.message || "Failed to generate video");
       }
 
       if (data.jobId) {
