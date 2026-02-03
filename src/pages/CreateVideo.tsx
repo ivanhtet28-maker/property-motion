@@ -62,6 +62,61 @@ export default function CreateVideo() {
   const [videoReady, setVideoReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [videoJobId, setVideoJobId] = useState<string | null>(null);
+  const [videoUrl, setVideoUrl] = useState<string | null>(null);
+
+  // Poll for video status
+  const pollVideoStatus = async (jobId: string) => {
+    const maxAttempts = 60; // 5 minutes max
+    let attempts = 0;
+
+    const poll = async (): Promise<void> => {
+      if (attempts >= maxAttempts) {
+        setError("Video generation timed out. Please try again.");
+        setIsGenerating(false);
+        return;
+      }
+
+      attempts++;
+      
+      try {
+        const { data, error: fnError } = await supabase.functions.invoke("check-video-status", {
+          body: { jobId },
+        });
+
+        if (fnError) {
+          console.error("Status check error:", fnError);
+          // Continue polling on transient errors
+          setTimeout(poll, 5000);
+          return;
+        }
+
+        console.log("Video status:", data);
+
+        if (data.status === "done" && data.videoUrl) {
+          setVideoUrl(data.videoUrl);
+          setGeneratingProgress(100);
+          setIsGenerating(false);
+          setVideoReady(true);
+          toast({
+            title: "Video Ready!",
+            description: "Your property video has been generated successfully.",
+          });
+        } else if (data.status === "failed") {
+          setError("Video generation failed. Please try again.");
+          setIsGenerating(false);
+        } else {
+          // Still processing - update progress and poll again
+          setGeneratingProgress((prev) => Math.min(prev + 2, 95));
+          setTimeout(poll, 5000);
+        }
+      } catch (err) {
+        console.error("Poll error:", err);
+        setTimeout(poll, 5000);
+      }
+    };
+
+    await poll();
+  };
 
   const handleNewVideo = () => {
     setPropertyDetails({
@@ -79,6 +134,8 @@ export default function CreateVideo() {
     setScript("");
     setVideoReady(false);
     setError(null);
+    setVideoUrl(null);
+    setVideoJobId(null);
   };
 
   const handleGenerate = async () => {
@@ -138,34 +195,14 @@ export default function CreateVideo() {
       if (data.success) {
         setVideoJobId(data.jobId);
         console.log("Video job started:", data.jobId);
-        
-        // Start progress simulation for video generation phase (30-95%)
-        const interval = setInterval(() => {
-          setGeneratingProgress((prev) => {
-            if (prev >= 95) {
-              clearInterval(interval);
-              return 95;
-            }
-            return prev + Math.random() * 3;
-          });
-        }, 1000);
 
         toast({
           title: "Video Generation Started",
-          description: "Generating video... please wait ~35 seconds",
+          description: "Generating video... this may take up to 2 minutes.",
         });
 
-        // TODO: Replace with actual status polling
-        setTimeout(() => {
-          clearInterval(interval);
-          setGeneratingProgress(100);
-          setIsGenerating(false);
-          setVideoReady(true);
-          toast({
-            title: "Video Ready!",
-            description: "Your property video has been generated successfully.",
-          });
-        }, 35000);
+        // Start polling for video status
+        pollVideoStatus(data.jobId);
       } else {
         throw new Error(data.error || "Video generation failed");
       }
@@ -312,6 +349,7 @@ export default function CreateVideo() {
             generatingProgress={generatingProgress}
             videoReady={videoReady}
             error={error}
+            videoUrl={videoUrl}
           />
         </div>
       </div>
