@@ -1,4 +1,4 @@
-// Edge function for video generation
+// Edge function for video generation using Shotstack API
 /// <reference types="https://esm.sh/@supabase/functions-js/src/edge-runtime.d.ts" />
 
 const corsHeaders = {
@@ -24,8 +24,8 @@ interface GenerateVideoRequest {
   music: string;
 }
 
-// Official Runway API endpoint (note: api.dev.runwayml.com for developers)
-const RUNWAY_API_URL = "https://api.dev.runwayml.com/v1";
+// Shotstack API endpoint
+const SHOTSTACK_API_URL = "https://api.shotstack.io/v1";
 
 Deno.serve(async (req) => {
   // Handle CORS preflight requests
@@ -34,12 +34,12 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const runwayApiKey = Deno.env.get("RUNWAY_API_KEY");
+    const shotstackApiKey = Deno.env.get("SHOTSTACK_API_KEY");
     
-    if (!runwayApiKey) {
-      console.error("RUNWAY_API_KEY not configured");
+    if (!shotstackApiKey) {
+      console.error("SHOTSTACK_API_KEY not configured");
       return new Response(
-        JSON.stringify({ error: "Video generation service not configured. Please add RUNWAY_API_KEY secret." }),
+        JSON.stringify({ error: "Video generation service not configured. Please add SHOTSTACK_API_KEY secret." }),
         {
           status: 500,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -76,60 +76,110 @@ Deno.serve(async (req) => {
       );
     }
 
-    // Use the first image URL for Runway's image-to-video generation
-    const firstImageUrl = imageUrls[0];
-    
-    // Validate it's a URL (not base64)
-    if (!firstImageUrl.startsWith("http")) {
-      console.error("Invalid image URL - expected http(s) URL, got:", firstImageUrl.substring(0, 50));
-      return new Response(
-        JSON.stringify({ error: "Images must be URLs, not base64 data" }),
-        {
-          status: 400,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        }
-      );
+    // Validate images are URLs (not base64)
+    for (const url of imageUrls) {
+      if (!url.startsWith("http")) {
+        console.error("Invalid image URL - expected http(s) URL, got:", url.substring(0, 50));
+        return new Response(
+          JSON.stringify({ error: "Images must be URLs, not base64 data" }),
+          {
+            status: 400,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          }
+        );
+      }
     }
-    
-    console.log("Calling Runway API for image-to-video generation...");
-    console.log("- API URL:", `${RUNWAY_API_URL}/image_to_video`);
-    console.log("- Using image URL:", firstImageUrl);
-    console.log("- API Key prefix:", runwayApiKey.substring(0, 10) + "...");
-    
-    // Build request body according to Runway API docs
-    const requestBody = {
-      model: "gen4_turbo",
-      promptImage: firstImageUrl,
-      promptText: propertyData.description.substring(0, 1000),
-      ratio: "720:1280", // 9:16 vertical format
-      duration: 5,
+
+    // Build Shotstack timeline with image clips
+    const clipDuration = 3; // seconds per image
+    const clips = imageUrls.slice(0, 10).map((url, index) => ({
+      asset: {
+        type: "image",
+        src: url,
+      },
+      start: index * clipDuration,
+      length: clipDuration,
+      effect: "zoomIn", // Ken Burns-style effect
+      transition: {
+        in: "fade",
+        out: "fade",
+      },
+    }));
+
+    // Add text overlay with property info
+    const textClips = [
+      {
+        asset: {
+          type: "html",
+          html: `<p>${propertyData.address}</p>`,
+          css: "p { font-family: 'Montserrat'; color: #ffffff; font-size: 48px; text-align: center; text-shadow: 2px 2px 4px rgba(0,0,0,0.8); }",
+          width: 1000,
+          height: 100,
+        },
+        start: 0,
+        length: clips.length * clipDuration,
+        position: "bottom",
+        offset: { y: 0.15 },
+      },
+      {
+        asset: {
+          type: "html",
+          html: `<p>${propertyData.price} | ${propertyData.beds} Bed | ${propertyData.baths} Bath</p>`,
+          css: "p { font-family: 'Montserrat'; color: #ffffff; font-size: 36px; text-align: center; text-shadow: 2px 2px 4px rgba(0,0,0,0.8); }",
+          width: 1000,
+          height: 80,
+        },
+        start: 0,
+        length: clips.length * clipDuration,
+        position: "bottom",
+        offset: { y: 0.08 },
+      },
+    ];
+
+    // Build the Shotstack render request
+    const renderRequest = {
+      timeline: {
+        background: "#000000",
+        tracks: [
+          { clips: textClips }, // Text on top
+          { clips }, // Images below
+        ],
+      },
+      output: {
+        format: "mp4",
+        resolution: "hd", // 1280x720
+        aspectRatio: "9:16", // Vertical format for social media
+        fps: 30,
+      },
     };
-    
-    console.log("Request body:", JSON.stringify(requestBody));
-    
-    // Call Runway API to generate video from first image
-    const runwayResponse = await fetch(`${RUNWAY_API_URL}/image_to_video`, {
+
+    console.log("Calling Shotstack API for video render...");
+    console.log("- API URL:", `${SHOTSTACK_API_URL}/render`);
+    console.log("- Number of clips:", clips.length);
+    console.log("- Total duration:", clips.length * clipDuration, "seconds");
+
+    // Call Shotstack API to render video
+    const shotstackResponse = await fetch(`${SHOTSTACK_API_URL}/render`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Authorization": `Bearer ${runwayApiKey}`,
-        "X-Runway-Version": "2024-11-06",
+        "x-api-key": shotstackApiKey,
       },
-      body: JSON.stringify(requestBody),
+      body: JSON.stringify(renderRequest),
     });
 
     // Get response as text first to handle HTML error pages
-    const responseText = await runwayResponse.text();
-    console.log("Runway API response status:", runwayResponse.status);
-    console.log("Runway API response (first 500 chars):", responseText.substring(0, 500));
+    const responseText = await shotstackResponse.text();
+    console.log("Shotstack API response status:", shotstackResponse.status);
+    console.log("Shotstack API response (first 500 chars):", responseText.substring(0, 500));
 
     // Check if response is HTML (error page)
     if (responseText.startsWith("<!DOCTYPE") || responseText.startsWith("<html")) {
-      console.error("Runway API returned HTML instead of JSON - likely invalid endpoint or auth issue");
+      console.error("Shotstack API returned HTML instead of JSON");
       return new Response(
         JSON.stringify({ 
-          error: "Runway API returned an error page. Please verify your RUNWAY_API_KEY is valid.",
-          details: "The API endpoint may be incorrect or the API key may be invalid."
+          error: "Shotstack API returned an error page. Please verify your SHOTSTACK_API_KEY is valid.",
+          details: responseText.substring(0, 200),
         }),
         {
           status: 500,
@@ -138,14 +188,13 @@ Deno.serve(async (req) => {
       );
     }
 
-    if (!runwayResponse.ok) {
-      console.error("Runway API error:", runwayResponse.status, responseText);
+    if (!shotstackResponse.ok) {
+      console.error("Shotstack API error:", shotstackResponse.status, responseText);
       
-      // Try to parse error message
       let errorMessage = "Failed to start video generation";
       try {
         const errorJson = JSON.parse(responseText);
-        errorMessage = errorJson.error || errorJson.message || errorMessage;
+        errorMessage = errorJson.message || errorJson.error || errorMessage;
       } catch {
         errorMessage = responseText.substring(0, 200);
       }
@@ -153,18 +202,18 @@ Deno.serve(async (req) => {
       return new Response(
         JSON.stringify({ error: errorMessage }),
         {
-          status: runwayResponse.status,
+          status: shotstackResponse.status,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         }
       );
     }
 
     // Parse successful JSON response
-    let runwayData;
+    let shotstackData;
     try {
-      runwayData = JSON.parse(responseText);
+      shotstackData = JSON.parse(responseText);
     } catch (e) {
-      console.error("Failed to parse Runway response as JSON:", e);
+      console.error("Failed to parse Shotstack response as JSON:", e);
       return new Response(
         JSON.stringify({ error: "Invalid response from video service" }),
         {
@@ -174,12 +223,12 @@ Deno.serve(async (req) => {
       );
     }
     
-    console.log("Runway API response:", JSON.stringify(runwayData));
+    console.log("Shotstack API response:", JSON.stringify(shotstackData));
 
-    const jobId = runwayData.id;
+    const jobId = shotstackData.response?.id;
 
     if (!jobId) {
-      console.error("No job ID in Runway response:", runwayData);
+      console.error("No job ID in Shotstack response:", shotstackData);
       return new Response(
         JSON.stringify({ error: "Failed to get job ID from video service" }),
         {
@@ -196,7 +245,7 @@ Deno.serve(async (req) => {
         success: true,
         jobId: jobId,
         message: "Video generation started",
-        estimatedTime: 35,
+        estimatedTime: 60, // Shotstack typically takes ~1 minute
       }),
       {
         status: 200,
