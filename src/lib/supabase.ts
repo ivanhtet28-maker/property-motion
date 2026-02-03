@@ -1,3 +1,4 @@
+// Supabase client configuration - rebuilt 2026-02-03T08:40
 import { createClient } from '@supabase/supabase-js';
 
 // Supabase credentials from environment variables
