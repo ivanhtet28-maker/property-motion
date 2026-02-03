@@ -1,3 +1,4 @@
+// Edge function for video generation - redeployed 2026-02-03T07:55
 /// <reference types="https://esm.sh/@supabase/functions-js/src/edge-runtime.d.ts" />
 
 const corsHeaders = {
