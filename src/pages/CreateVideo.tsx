@@ -66,12 +66,13 @@ export default function CreateVideo() {
 
   // Poll for video status
   const pollVideoStatus = async (jobId: string) => {
-    const maxAttempts = 60; // 5 minutes max
+    const maxAttempts = 60; // 5 minutes max (60 * 5 seconds)
     let attempts = 0;
+    let consecutiveErrors = 0;
 
     const poll = async (): Promise<void> => {
       if (attempts >= maxAttempts) {
-        setError("Video generation timed out. Please try again.");
+        setError("Video generation timed out after 5 minutes. Please try again.");
         setIsGenerating(false);
         return;
       }
@@ -79,18 +80,29 @@ export default function CreateVideo() {
       attempts++;
       
       try {
+        console.log(`Polling attempt ${attempts}/${maxAttempts} for job ${jobId}`);
+        
         const { data, error: fnError } = await supabase.functions.invoke("check-video-status", {
           body: { jobId },
         });
 
         if (fnError) {
           console.error("Status check error:", fnError);
-          // Continue polling on transient errors
+          consecutiveErrors++;
+          
+          // After 5 consecutive errors, show a warning but keep trying
+          if (consecutiveErrors >= 5) {
+            console.warn("Multiple consecutive errors - edge function may be unavailable");
+          }
+          
+          // Keep polling even on errors
           setTimeout(poll, 5000);
           return;
         }
 
-        console.log("Video status:", data);
+        // Reset error counter on successful response
+        consecutiveErrors = 0;
+        console.log("Video status response:", data);
 
         if (data.status === "done" && data.videoUrl) {
           setVideoUrl(data.videoUrl);
@@ -105,12 +117,20 @@ export default function CreateVideo() {
           setError("Video generation failed. Please try again.");
           setIsGenerating(false);
         } else {
-          // Still processing - update progress and poll again
-          setGeneratingProgress((prev) => Math.min(prev + 2, 95));
+          // Still processing - update progress based on Shotstack status
+          const progressMap: Record<string, number> = {
+            queued: 35,
+            fetching: 45,
+            rendering: 60,
+            saving: 85,
+          };
+          const newProgress = progressMap[data.rawStatus] || Math.min(generatingProgress + 2, 95);
+          setGeneratingProgress(newProgress);
           setTimeout(poll, 5000);
         }
       } catch (err) {
-        console.error("Poll error:", err);
+        console.error("Poll exception:", err);
+        consecutiveErrors++;
         setTimeout(poll, 5000);
       }
     };
