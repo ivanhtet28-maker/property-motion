@@ -6,10 +6,20 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
+interface PropertyData {
+  address: string;
+  price: string;
+  beds: number;
+  baths: number;
+  description: string;
+}
+
 interface GenerateVideoRequest {
-  images: string[]; // Now expects URLs from Supabase Storage, not base64
-  script: string;
-  aspectRatio: string;
+  imageUrls: string[];
+  propertyData: PropertyData;
+  style: string;
+  voice: string;
+  music: string;
 }
 
 const RUNWAY_API_URL = "https://api.dev.runwayml.com/v1"; // Video generation API
@@ -34,16 +44,18 @@ Deno.serve(async (req) => {
       );
     }
 
-    const { images, script, aspectRatio }: GenerateVideoRequest = await req.json();
+    const { imageUrls, propertyData, style, voice, music }: GenerateVideoRequest = await req.json();
 
     console.log("Received video generation request:");
-    console.log("- Number of images:", images?.length || 0);
-    console.log("- First image URL:", images?.[0]?.substring(0, 100) || "none");
-    console.log("- Script length:", script?.length || 0);
-    console.log("- Aspect ratio:", aspectRatio);
+    console.log("- Number of images:", imageUrls?.length || 0);
+    console.log("- First image URL:", imageUrls?.[0]?.substring(0, 100) || "none");
+    console.log("- Property address:", propertyData?.address || "none");
+    console.log("- Style:", style);
+    console.log("- Voice:", voice);
+    console.log("- Music:", music);
 
     // Validate input
-    if (!images || images.length < 5) {
+    if (!imageUrls || imageUrls.length < 5) {
       return new Response(
         JSON.stringify({ error: "Need at least 5 images" }),
         {
@@ -53,9 +65,9 @@ Deno.serve(async (req) => {
       );
     }
 
-    if (!script) {
+    if (!propertyData?.description) {
       return new Response(
-        JSON.stringify({ error: "Script is required" }),
+        JSON.stringify({ error: "Property description is required" }),
         {
           status: 400,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -64,7 +76,7 @@ Deno.serve(async (req) => {
     }
 
     // Use the first image URL for Runway's image-to-video generation
-    const firstImageUrl = images[0];
+    const firstImageUrl = imageUrls[0];
     
     // Validate it's a URL (not base64)
     if (!firstImageUrl.startsWith("http")) {
@@ -91,9 +103,9 @@ Deno.serve(async (req) => {
       },
       body: JSON.stringify({
         model: "gen4_turbo",
-        promptImage: firstImageUrl, // Now using URL from storage
-        promptText: script.substring(0, 512), // Runway has text limit
-        ratio: aspectRatio === "9:16" ? "720:1280" : "1280:720",
+        promptImage: firstImageUrl,
+        promptText: propertyData.description.substring(0, 512),
+        ratio: "720:1280", // 9:16 vertical
         duration: 5,
       }),
     });

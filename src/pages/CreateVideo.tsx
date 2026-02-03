@@ -116,9 +116,17 @@ export default function CreateVideo() {
       console.log("Calling generate-video API...");
       const { data, error: fnError } = await supabase.functions.invoke("generate-video", {
         body: {
-          images: imageUrls,
-          script: videoScript,
-          aspectRatio: "9:16",
+          imageUrls: imageUrls,
+          propertyData: {
+            address: `${propertyDetails.streetAddress}, ${propertyDetails.suburb}, ${propertyDetails.state}`,
+            price: propertyDetails.price,
+            beds: propertyDetails.bedrooms,
+            baths: propertyDetails.bathrooms,
+            description: videoScript,
+          },
+          style: customization.selectedTemplate,
+          voice: customization.voiceType,
+          music: customization.musicTrack,
         },
       });
 
@@ -126,7 +134,8 @@ export default function CreateVideo() {
         throw new Error(fnError.message || "Failed to generate video");
       }
 
-      if (data.jobId) {
+      // Handle the response
+      if (data.success) {
         setVideoJobId(data.jobId);
         console.log("Video job started:", data.jobId);
         
@@ -158,7 +167,7 @@ export default function CreateVideo() {
           });
         }, 35000);
       } else {
-        throw new Error("No job ID received from server");
+        throw new Error(data.error || "Video generation failed");
       }
     } catch (err) {
       console.error("Video generation error:", err);
