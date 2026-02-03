@@ -7,7 +7,7 @@ const corsHeaders = {
 };
 
 interface GenerateVideoRequest {
-  images: string[];
+  images: string[]; // Now expects URLs from Supabase Storage, not base64
   script: string;
   aspectRatio: string;
 }
@@ -38,6 +38,7 @@ Deno.serve(async (req) => {
 
     console.log("Received video generation request:");
     console.log("- Number of images:", images?.length || 0);
+    console.log("- First image URL:", images?.[0]?.substring(0, 100) || "none");
     console.log("- Script length:", script?.length || 0);
     console.log("- Aspect ratio:", aspectRatio);
 
@@ -62,10 +63,23 @@ Deno.serve(async (req) => {
       );
     }
 
-    // Use the first image for Runway's image-to-video generation
-    const firstImage = images[0];
+    // Use the first image URL for Runway's image-to-video generation
+    const firstImageUrl = images[0];
+    
+    // Validate it's a URL (not base64)
+    if (!firstImageUrl.startsWith("http")) {
+      console.error("Invalid image URL - expected http(s) URL, got:", firstImageUrl.substring(0, 50));
+      return new Response(
+        JSON.stringify({ error: "Images must be URLs, not base64 data" }),
+        {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        }
+      );
+    }
     
     console.log("Calling Runway API for image-to-video generation...");
+    console.log("- Using image URL:", firstImageUrl);
     
     // Call Runway API to generate video from first image
     const runwayResponse = await fetch(`${RUNWAY_API_URL}/image_to_video`, {
@@ -77,7 +91,7 @@ Deno.serve(async (req) => {
       },
       body: JSON.stringify({
         model: "gen4_turbo",
-        promptImage: firstImage,
+        promptImage: firstImageUrl, // Now using URL from storage
         promptText: script.substring(0, 512), // Runway has text limit
         ratio: aspectRatio === "9:16" ? "720:1280" : "1280:720",
         duration: 5,

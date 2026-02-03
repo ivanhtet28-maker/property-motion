@@ -15,7 +15,7 @@ import {
   CustomizationSettings,
 } from "@/components/create-video";
 import { ScriptGeneratorSection } from "@/components/create-video/ScriptGeneratorSection";
-import { compressImages } from "@/utils/imageCompression";
+import { uploadImagesToStorage } from "@/utils/uploadToStorage";
 
 export default function CreateVideo() {
   const navigate = useNavigate();
@@ -92,16 +92,27 @@ export default function CreateVideo() {
     setVideoJobId(null);
 
     try {
-      // Compress photos to reduce payload size (800px max, 70% quality)
-      console.log("Compressing images...");
-      const imageUrls = await compressImages(photos, 800, 0.7);
-      console.log("Images compressed, total size:", 
-        Math.round(imageUrls.reduce((acc, url) => acc + url.length, 0) / 1024) + "KB"
+      // Step 1: Upload images to Supabase Storage
+      console.log("Uploading images to storage...");
+      const folder = `property-${Date.now()}`;
+      
+      const imageUrls = await uploadImagesToStorage(
+        photos,
+        folder,
+        (completed, total) => {
+          // Update progress during upload phase (0-30%)
+          setGeneratingProgress((completed / total) * 30);
+        }
       );
       
-      // Use the script if available, otherwise use default
+      console.log("Images uploaded:", imageUrls.length, "files");
+      setGeneratingProgress(30);
+
+      // Step 2: Use the script if available, otherwise use default
       const videoScript = script || "This is a beautiful property with great features";
 
+      // Step 3: Call generate-video with URLs (not base64)
+      console.log("Calling generate-video API...");
       const response = await fetch(
         "https://pxhpfewunsetuxygeprp.supabase.co/functions/v1/generate-video",
         {
@@ -128,14 +139,14 @@ export default function CreateVideo() {
         setVideoJobId(data.jobId);
         console.log("Video job started:", data.jobId);
         
-        // Start progress simulation while waiting
+        // Start progress simulation for video generation phase (30-95%)
         const interval = setInterval(() => {
           setGeneratingProgress((prev) => {
             if (prev >= 95) {
               clearInterval(interval);
               return 95;
             }
-            return prev + Math.random() * 5;
+            return prev + Math.random() * 3;
           });
         }, 1000);
 
@@ -144,7 +155,6 @@ export default function CreateVideo() {
           description: "Generating video... please wait ~35 seconds",
         });
 
-        // For now, simulate completion after 35 seconds
         // TODO: Replace with actual status polling
         setTimeout(() => {
           clearInterval(interval);
