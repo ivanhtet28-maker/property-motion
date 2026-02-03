@@ -42,6 +42,7 @@ interface RightPanelProps {
   generatingProgress: number;
   videoReady: boolean;
   error: string | null;
+  videoUrl?: string | null;
 }
 
 export function RightPanel({
@@ -52,6 +53,7 @@ export function RightPanel({
   generatingProgress,
   videoReady,
   error,
+  videoUrl,
 }: RightPanelProps) {
   const [isEditingScript, setIsEditingScript] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -187,17 +189,32 @@ Contact us today for a private inspection.`;
               <span className="font-semibold">Video Ready!</span>
             </div>
 
-            {/* Video Player Placeholder */}
+            {/* Video Player */}
             <div className="aspect-video bg-foreground rounded-lg relative overflow-hidden">
-              <div className="absolute inset-0 flex items-center justify-center">
-                <button className="w-14 h-14 rounded-full bg-background/20 flex items-center justify-center hover:bg-background/30 transition-colors">
-                  <Play className="w-6 h-6 text-background" fill="currentColor" />
-                </button>
-              </div>
+              {videoUrl ? (
+                <video
+                  src={videoUrl}
+                  controls
+                  className="w-full h-full object-cover"
+                  autoPlay
+                  playsInline
+                />
+              ) : (
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <button className="w-14 h-14 rounded-full bg-background/20 flex items-center justify-center hover:bg-background/30 transition-colors">
+                    <Play className="w-6 h-6 text-background" fill="currentColor" />
+                  </button>
+                </div>
+              )}
             </div>
 
             {/* Download & Share */}
-            <Button variant="hero" className="w-full gap-2">
+            <Button 
+              variant="hero" 
+              className="w-full gap-2"
+              onClick={() => videoUrl && window.open(videoUrl, '_blank')}
+              disabled={!videoUrl}
+            >
               <Download className="w-4 h-4" />
               Download MP4
             </Button>
