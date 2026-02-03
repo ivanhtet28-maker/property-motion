@@ -24,8 +24,8 @@ interface GenerateVideoRequest {
   music: string;
 }
 
-// Official Runway API endpoint
-const RUNWAY_API_URL = "https://api.runwayml.com/v1";
+// Official Runway API endpoint (note: api.dev.runwayml.com for developers)
+const RUNWAY_API_URL = "https://api.dev.runwayml.com/v1";
 
 Deno.serve(async (req) => {
   // Handle CORS preflight requests
