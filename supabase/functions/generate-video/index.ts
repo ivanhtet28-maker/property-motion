@@ -12,7 +12,7 @@ interface GenerateVideoRequest {
   aspectRatio: string;
 }
 
-const RUNWAY_API_URL = "https://api.dev.runwayml.com/v1";
+const RUNWAY_API_URL = "https://api.dev.runwayml.com/v1"; // Video generation API
 
 Deno.serve(async (req) => {
   // Handle CORS preflight requests
