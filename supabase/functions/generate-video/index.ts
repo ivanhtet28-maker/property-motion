@@ -25,7 +25,8 @@ interface GenerateVideoRequest {
 }
 
 // Shotstack API endpoint
-const SHOTSTACK_API_URL = "https://api.shotstack.io/v1";
+// Use stage API for sandbox keys, production for live keys
+const SHOTSTACK_API_URL = "https://api.shotstack.io/stage";
 
 Deno.serve(async (req) => {
   // Handle CORS preflight requests
