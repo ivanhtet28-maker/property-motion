@@ -1,5 +1,8 @@
 // Edge function to check Shotstack video render status
+// Version: 2 - Force redeploy
 /// <reference types="https://esm.sh/@supabase/functions-js/src/edge-runtime.d.ts" />
+
+console.log("check-video-status function loaded");
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -16,8 +19,11 @@ interface CheckStatusRequest {
 }
 
 Deno.serve(async (req) => {
+  console.log("check-video-status called:", req.method, req.url);
+  
   // Handle CORS preflight requests
   if (req.method === "OPTIONS") {
+    console.log("Handling OPTIONS preflight");
     return new Response("ok", { headers: corsHeaders });
   }
 
