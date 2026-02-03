@@ -12,6 +12,8 @@ interface GenerateVideoRequest {
   aspectRatio: string;
 }
 
+const RUNWAY_API_URL = "https://api.dev.runwayml.com/v1";
+
 Deno.serve(async (req) => {
   // Handle CORS preflight requests
   if (req.method === "OPTIONS") {
@@ -19,6 +21,19 @@ Deno.serve(async (req) => {
   }
 
   try {
+    const runwayApiKey = Deno.env.get("RUNWAY_API_KEY");
+    
+    if (!runwayApiKey) {
+      console.error("RUNWAY_API_KEY not configured");
+      return new Response(
+        JSON.stringify({ error: "Video generation service not configured" }),
+        {
+          status: 500,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        }
+      );
+    }
+
     const { images, script, aspectRatio }: GenerateVideoRequest = await req.json();
 
     console.log("Received video generation request:");
@@ -47,17 +62,68 @@ Deno.serve(async (req) => {
       );
     }
 
-    // Generate a unique job ID
-    const jobId = crypto.randomUUID();
+    // Use the first image for Runway's image-to-video generation
+    const firstImage = images[0];
+    
+    console.log("Calling Runway API for image-to-video generation...");
+    
+    // Call Runway API to generate video from first image
+    const runwayResponse = await fetch(`${RUNWAY_API_URL}/image_to_video`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${runwayApiKey}`,
+        "X-Runway-Version": "2024-11-06",
+      },
+      body: JSON.stringify({
+        model: "gen4_turbo",
+        promptImage: firstImage,
+        promptText: script.substring(0, 512), // Runway has text limit
+        ratio: aspectRatio === "9:16" ? "720:1280" : "1280:720",
+        duration: 5,
+      }),
+    });
 
-    console.log("Created video generation job:", jobId);
+    if (!runwayResponse.ok) {
+      const errorText = await runwayResponse.text();
+      console.error("Runway API error:", runwayResponse.status, errorText);
+      
+      // Parse error for better messaging
+      let errorMessage = "Failed to start video generation";
+      try {
+        const errorJson = JSON.parse(errorText);
+        errorMessage = errorJson.error || errorJson.message || errorMessage;
+      } catch {
+        // Use default message
+      }
+      
+      return new Response(
+        JSON.stringify({ error: errorMessage }),
+        {
+          status: runwayResponse.status,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        }
+      );
+    }
 
-    // TODO: In production, this would:
-    // 1. Store the job in a database
-    // 2. Queue the video generation task (e.g., using Shotstack API)
-    // 3. Return immediately with the jobId for status polling
+    const runwayData = await runwayResponse.json();
+    console.log("Runway API response:", JSON.stringify(runwayData));
 
-    // For now, return a mock successful response
+    const jobId = runwayData.id;
+
+    if (!jobId) {
+      console.error("No job ID in Runway response:", runwayData);
+      return new Response(
+        JSON.stringify({ error: "Failed to get job ID from video service" }),
+        {
+          status: 500,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        }
+      );
+    }
+
+    console.log("Video generation job started:", jobId);
+
     return new Response(
       JSON.stringify({
         success: true,
@@ -74,8 +140,8 @@ Deno.serve(async (req) => {
     console.error("Error processing video generation request:", error);
 
     return new Response(
-      JSON.stringify({ 
-        error: error instanceof Error ? error.message : "Failed to process request" 
+      JSON.stringify({
+        error: error instanceof Error ? error.message : "Failed to process request",
       }),
       {
         status: 500,
