@@ -85,7 +85,7 @@ Contact us today for a private inspection.`;
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const canGenerate = photoCount >= 10 && propertyDetails.streetAddress;
+  const canGenerate = photoCount >= 5;
 
   const getProgressStatus = () => {
     if (generatingProgress < 20) return "Analyzing photos...";
@@ -241,9 +241,9 @@ Contact us today for a private inspection.`;
             </p>
             {!canGenerate && (
               <p className="text-xs text-center text-warning">
-                {photoCount < 10
-                  ? `Add ${10 - photoCount} more photos`
-                  : "Enter property address"}
+                {photoCount < 5
+                  ? `Add ${5 - photoCount} more photos`
+                  : ""}
               </p>
             )}
           </div>

@@ -59,6 +59,7 @@ export default function CreateVideo() {
   const [generatingProgress, setGeneratingProgress] = useState(0);
   const [videoReady, setVideoReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [videoJobId, setVideoJobId] = useState<string | null>(null);
 
   const handleNewVideo = () => {
     setPropertyDetails({
@@ -78,45 +79,101 @@ export default function CreateVideo() {
     setError(null);
   };
 
-  const handleGenerate = async () => {
-    if (photos.length < 10) {
-      setError(`Need at least 10 photos (you have ${photos.length})`);
-      return;
-    }
+  // Convert File to base64 data URL
+  const fileToDataUrl = (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  };
 
-    if (!propertyDetails.streetAddress) {
-      setError("Please enter a property address");
+  const handleGenerate = async () => {
+    if (photos.length < 5) {
+      setError(`Need at least 5 photos (you have ${photos.length})`);
       return;
     }
 
     setError(null);
     setIsGenerating(true);
     setGeneratingProgress(0);
+    setVideoJobId(null);
 
-    // Simulate generation progress
-    const interval = setInterval(() => {
-      setGeneratingProgress((prev) => {
-        if (prev >= 100) {
-          clearInterval(interval);
-          return 100;
+    try {
+      // Convert photos to data URLs
+      const imageUrls = await Promise.all(photos.map(fileToDataUrl));
+      
+      // Use the script if available, otherwise use default
+      const videoScript = script || "This is a beautiful property with great features";
+
+      const response = await fetch(
+        "https://pxhpfewunsetuxygeprp.supabase.co/functions/v1/generate-video",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer sb_publishable_dZfmgOW6Z1N2FYNtiaDLMQ_Q27bxxAQ",
+          },
+          body: JSON.stringify({
+            images: imageUrls,
+            script: videoScript,
+            aspectRatio: "9:16",
+          }),
         }
-        return prev + Math.random() * 8;
-      });
-    }, 300);
+      );
 
-    // Wait for completion
-    await new Promise((resolve) => setTimeout(resolve, 5000));
-    clearInterval(interval);
-    setGeneratingProgress(100);
+      const data = await response.json();
 
-    setTimeout(() => {
+      if (!response.ok) {
+        throw new Error(data.error || "Failed to generate video");
+      }
+
+      if (data.jobId) {
+        setVideoJobId(data.jobId);
+        console.log("Video job started:", data.jobId);
+        
+        // Start progress simulation while waiting
+        const interval = setInterval(() => {
+          setGeneratingProgress((prev) => {
+            if (prev >= 95) {
+              clearInterval(interval);
+              return 95;
+            }
+            return prev + Math.random() * 5;
+          });
+        }, 1000);
+
+        toast({
+          title: "Video Generation Started",
+          description: "Generating video... please wait ~35 seconds",
+        });
+
+        // For now, simulate completion after 35 seconds
+        // TODO: Replace with actual status polling
+        setTimeout(() => {
+          clearInterval(interval);
+          setGeneratingProgress(100);
+          setIsGenerating(false);
+          setVideoReady(true);
+          toast({
+            title: "Video Ready!",
+            description: "Your property video has been generated successfully.",
+          });
+        }, 35000);
+      } else {
+        throw new Error("No job ID received from server");
+      }
+    } catch (err) {
+      console.error("Video generation error:", err);
+      setError(err instanceof Error ? err.message : "Failed to generate video");
       setIsGenerating(false);
-      setVideoReady(true);
       toast({
-        title: "Video Ready!",
-        description: "Your property video has been generated successfully.",
+        title: "Generation Failed",
+        description: err instanceof Error ? err.message : "Failed to generate video",
+        variant: "destructive",
       });
-    }, 500);
+    }
   };
 
   return (
@@ -198,7 +255,7 @@ export default function CreateVideo() {
               <PhotoUpload
                 photos={photos}
                 onChange={setPhotos}
-                minPhotos={10}
+                minPhotos={5}
                 maxPhotos={20}
               />
             </div>
@@ -227,13 +284,13 @@ export default function CreateVideo() {
                 size="lg"
                 className="w-full"
                 onClick={handleGenerate}
-                disabled={photos.length < 10 || !propertyDetails.streetAddress || isGenerating}
+                disabled={photos.length < 5 || isGenerating}
               >
                 {isGenerating ? "Generating..." : "Generate Video"}
               </Button>
-              {photos.length < 10 && (
+              {photos.length < 5 && (
                 <p className="text-xs text-center text-warning mt-2">
-                  Add {10 - photos.length} more photos
+                  Add {5 - photos.length} more photos
                 </p>
               )}
             </div>
