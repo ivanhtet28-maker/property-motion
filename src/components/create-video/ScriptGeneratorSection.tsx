@@ -153,58 +153,60 @@ export function ScriptGeneratorSection({
           </Button>
         </div>
 
-        {script && (
-          <div className="space-y-3">
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-foreground">
-                Generated Script (Editable)
-              </label>
-              <Textarea
-                value={script}
-                onChange={(e) => onScriptChange(e.target.value)}
-                className="min-h-[180px] bg-background"
-                placeholder="Your generated script will appear here..."
-              />
-            </div>
-
-            <div className="flex items-center justify-between">
-              <div className="flex gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={generateScript}
-                  disabled={isGenerating}
-                  className="gap-2"
-                >
-                  <RefreshCw className="w-3 h-3" />
-                  Regenerate
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleCopy}
-                  className="gap-2"
-                >
-                  {copied ? (
-                    <>
-                      <Check className="w-3 h-3" />
-                      Copied!
-                    </>
-                  ) : (
-                    <>
-                      <Copy className="w-3 h-3" />
-                      Copy
-                    </>
-                  )}
-                </Button>
-              </div>
-
-              <span className="text-xs text-muted-foreground">
-                Word Count: {wordCount} | Duration: ~{estimatedDuration} sec
-              </span>
-            </div>
+        <div className="space-y-3">
+          <div className="space-y-2">
+            <label className="text-sm font-medium text-foreground">
+              Script Preview (Editable)
+            </label>
+            <Textarea
+              value={script}
+              onChange={(e) => onScriptChange(e.target.value)}
+              className="min-h-[180px] bg-background"
+              placeholder="Your AI-generated script will appear here. Click 'Generate Script' above or type your own..."
+            />
           </div>
-        )}
+
+          <div className="flex items-center justify-between">
+            <div className="flex gap-2">
+              {script && (
+                <>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={generateScript}
+                    disabled={isGenerating}
+                    className="gap-2"
+                  >
+                    <RefreshCw className="w-3 h-3" />
+                    Regenerate
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleCopy}
+                    className="gap-2"
+                  >
+                    {copied ? (
+                      <>
+                        <Check className="w-3 h-3" />
+                        Copied!
+                      </>
+                    ) : (
+                      <>
+                        <Copy className="w-3 h-3" />
+                        Copy
+                      </>
+                    )}
+                  </Button>
+                </>
+              )}
+            </div>
+
+            <span className="text-xs text-muted-foreground">
+              {script ? `Word Count: ${wordCount} | Duration: ~${estimatedDuration} sec` : "0 words"}
+            </span>
+          </div>
+        </div>
       </div>
     </section>
   );
