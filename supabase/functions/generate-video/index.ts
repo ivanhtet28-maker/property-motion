@@ -104,6 +104,7 @@ highlight architectural details, warm inviting atmosphere, 9:16 vertical format 
 
     // Use the first image as the keyframe for image-to-video generation
     const requestBody = {
+      model: "ray-2",
       prompt: prompt,
       keyframes: {
         frame0: {
