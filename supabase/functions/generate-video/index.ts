@@ -1,4 +1,4 @@
-// Edge function for video generation using Luma Labs Dream Machine API
+// Edge function for video generation using Luma Labs + Shotstack hybrid approach
 /// <reference types="https://esm.sh/@supabase/functions-js/src/edge-runtime.d.ts" />
 
 const corsHeaders = {
@@ -24,8 +24,9 @@ interface GenerateVideoRequest {
   music: string;
 }
 
-// Luma Labs API endpoint
+// API endpoints
 const LUMA_API_URL = "https://api.lumalabs.ai/dream-machine/v1";
+const SHOTSTACK_API_URL = "https://api.shotstack.io/v1";
 
 Deno.serve(async (req) => {
   // Handle CORS preflight requests
@@ -35,195 +36,211 @@ Deno.serve(async (req) => {
 
   try {
     const lumaApiKey = Deno.env.get("LUMA_API_KEY");
+    const shotstackApiKey = Deno.env.get("SHOTSTACK_API_KEY");
     
     if (!lumaApiKey) {
       console.error("LUMA_API_KEY not configured");
       return new Response(
         JSON.stringify({ error: "Video generation service not configured. Please add LUMA_API_KEY secret." }),
-        {
-          status: 500,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        }
+        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    if (!shotstackApiKey) {
+      console.error("SHOTSTACK_API_KEY not configured");
+      return new Response(
+        JSON.stringify({ error: "Video editing service not configured. Please add SHOTSTACK_API_KEY secret." }),
+        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
     const { imageUrls, propertyData, style, voice, music }: GenerateVideoRequest = await req.json();
 
-    console.log("Received video generation request:");
-    console.log("- Number of images:", imageUrls?.length || 0);
-    console.log("- First image URL:", imageUrls?.[0]?.substring(0, 100) || "none");
-    console.log("- Property address:", propertyData?.address || "none");
-    console.log("- Style:", style);
+    console.log("=== PROPERTY WALKTHROUGH VIDEO GENERATION ===");
+    console.log("Total images:", imageUrls?.length || 0);
+    console.log("Property:", propertyData?.address);
+    console.log("Style:", style);
 
     // Validate input
     if (!imageUrls || imageUrls.length < 5) {
       return new Response(
         JSON.stringify({ error: "Need at least 5 images" }),
-        {
-          status: 400,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        }
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    if (!propertyData?.description) {
-      return new Response(
-        JSON.stringify({ error: "Property description is required" }),
-        {
-          status: 400,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        }
-      );
-    }
-
-    // Validate images are URLs (not base64)
+    // Validate images are URLs
     for (const url of imageUrls) {
       if (!url.startsWith("http")) {
-        console.error("Invalid image URL - expected http(s) URL, got:", url.substring(0, 50));
         return new Response(
           JSON.stringify({ error: "Images must be URLs, not base64 data" }),
-          {
-            status: 400,
-            headers: { ...corsHeaders, "Content-Type": "application/json" },
-          }
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
     }
 
-    // Generate multiple video segments for property walkthrough
-    // Each segment transitions from one image to the next
-    const segments: { startImage: string; endImage: string; index: number }[] = [];
+    // === APPROACH: SHOTSTACK SLIDESHOW WITH ALL IMAGES ===
+    // Creates a professional property tour video using all images with smooth transitions
     
-    // Create pairs of consecutive images for smooth transitions
-    for (let i = 0; i < imageUrls.length - 1; i++) {
-      segments.push({
-        startImage: imageUrls[i],
-        endImage: imageUrls[i + 1],
-        index: i
-      });
-    }
+    console.log("Creating Shotstack slideshow with all", imageUrls.length, "images");
 
-    console.log(`Creating ${segments.length} video segments from ${imageUrls.length} images`);
-
-    // Build prompts for each segment based on position in tour
-    const getSegmentPrompt = (index: number, total: number) => {
-      const position = index === 0 ? "opening" : index === total - 1 ? "closing" : "middle";
-      const cameraMove = index % 2 === 0 ? "slow dolly forward" : "gentle pan across";
-      
-      return `Cinematic real estate walkthrough transition. ${cameraMove}, smooth motion blur, 
-professional property tour feel. ${position === "opening" ? "Welcoming entrance shot." : 
-position === "closing" ? "Final reveal shot." : "Interior exploration."} 
-Style: ${style || 'professional'}, elegant, 9:16 vertical social media format.`;
-    };
-
-    // Start generating first segment (we'll chain the rest)
-    const firstSegment = segments[0];
-    const prompt = getSegmentPrompt(0, segments.length);
-
-    console.log("Starting multi-image property walkthrough generation...");
-    console.log("- Total images:", imageUrls.length);
-    console.log("- Total segments to generate:", segments.length);
-    console.log("- First segment prompt:", prompt.substring(0, 150));
-
-    // Use frame0 (start) and frame1 (end) keyframes for image-to-image video
-    const requestBody = {
-      model: "ray-2",
-      prompt: prompt,
-      keyframes: {
-        frame0: {
-          type: "image",
-          url: firstSegment.startImage
-        },
-        frame1: {
-          type: "image",
-          url: firstSegment.endImage
-        }
+    // Build Shotstack timeline with all images
+    const clipDuration = 3; // seconds per image
+    const transitionDuration = 0.5; // transition overlap
+    
+    // Create image clips for slideshow
+    const imageClips = imageUrls.map((url, index) => ({
+      asset: {
+        type: "image",
+        src: url
       },
-      aspect_ratio: "9:16",
-      loop: false
+      start: index * (clipDuration - transitionDuration),
+      length: clipDuration,
+      fit: "cover",
+      transition: {
+        in: index === 0 ? "fade" : "slideLeft",
+        out: index === imageUrls.length - 1 ? "fade" : "slideLeft"
+      },
+      effect: "zoomIn" // Ken Burns effect
+    }));
+
+    // Calculate total video duration
+    const totalDuration = (imageUrls.length * clipDuration) - ((imageUrls.length - 1) * transitionDuration);
+
+    // Create text overlay for property info
+    const addressParts = propertyData.address.split(',');
+    const streetAddress = addressParts[0]?.trim() || propertyData.address;
+    const suburb = addressParts[1]?.trim() || '';
+
+    const textClips = [
+      // Property address - appears at start
+      {
+        asset: {
+          type: "html",
+          html: `<div style="font-family: 'Inter', sans-serif; text-align: center; padding: 20px;">
+            <p style="font-size: 24px; color: white; text-shadow: 2px 2px 4px rgba(0,0,0,0.8); margin: 0; font-weight: 600;">${streetAddress}</p>
+            <p style="font-size: 18px; color: #e0e0e0; text-shadow: 1px 1px 3px rgba(0,0,0,0.8); margin: 5px 0 0 0;">${suburb}</p>
+          </div>`,
+          width: 600,
+          height: 120
+        },
+        start: 0.5,
+        length: 4,
+        position: "bottom",
+        offset: { y: 0.1 },
+        transition: { in: "fade", out: "fade" }
+      },
+      // Price and specs - appears in middle
+      {
+        asset: {
+          type: "html",
+          html: `<div style="font-family: 'Inter', sans-serif; text-align: center; padding: 20px; background: rgba(0,0,0,0.6); border-radius: 12px;">
+            <p style="font-size: 32px; color: #FFD700; margin: 0; font-weight: 700;">$${Number(propertyData.price).toLocaleString()}</p>
+            <p style="font-size: 18px; color: white; margin: 10px 0 0 0;">${propertyData.beds} Bed · ${propertyData.baths} Bath</p>
+          </div>`,
+          width: 400,
+          height: 120
+        },
+        start: totalDuration / 2,
+        length: 3,
+        position: "center",
+        transition: { in: "fade", out: "fade" }
+      },
+      // Call to action - end
+      {
+        asset: {
+          type: "html",
+          html: `<div style="font-family: 'Inter', sans-serif; text-align: center; padding: 30px; background: linear-gradient(135deg, rgba(139,92,246,0.9), rgba(168,85,247,0.9)); border-radius: 16px;">
+            <p style="font-size: 24px; color: white; margin: 0; font-weight: 700;">Book Your Viewing Today</p>
+          </div>`,
+          width: 450,
+          height: 100
+        },
+        start: totalDuration - 3,
+        length: 2.5,
+        position: "center",
+        transition: { in: "slideUp", out: "fade" }
+      }
+    ];
+
+    // Build the Shotstack edit request
+    const shotstackEdit = {
+      timeline: {
+        background: "#000000",
+        tracks: [
+          { clips: textClips }, // Text on top
+          { clips: imageClips } // Images below
+        ]
+      },
+      output: {
+        format: "mp4",
+        resolution: "hd", // 1080p
+        aspectRatio: "9:16", // Vertical for social media
+        fps: 30
+      }
     };
 
-    console.log("Request body:", JSON.stringify(requestBody));
+    console.log("Shotstack edit timeline:", JSON.stringify(shotstackEdit, null, 2).substring(0, 500));
 
-    // Call Luma Labs API to generate first video segment
-    const lumaResponse = await fetch(`${LUMA_API_URL}/generations`, {
+    // Submit to Shotstack
+    const shotstackResponse = await fetch(`${SHOTSTACK_API_URL}/render`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Authorization": `Bearer ${lumaApiKey}`,
+        "x-api-key": shotstackApiKey
       },
-      body: JSON.stringify(requestBody),
+      body: JSON.stringify(shotstackEdit)
     });
 
-    const responseText = await lumaResponse.text();
-    console.log("Luma Labs API response status:", lumaResponse.status);
-    console.log("Luma Labs API response:", responseText.substring(0, 500));
+    const shotstackText = await shotstackResponse.text();
+    console.log("Shotstack response status:", shotstackResponse.status);
+    console.log("Shotstack response:", shotstackText.substring(0, 500));
 
-    if (!lumaResponse.ok) {
-      console.error("Luma Labs API error:", lumaResponse.status, responseText);
-      
-      let errorMessage = "Failed to start video generation";
-      try {
-        const errorJson = JSON.parse(responseText);
-        errorMessage = errorJson.detail || errorJson.message || errorJson.error || errorMessage;
-      } catch {
-        errorMessage = responseText.substring(0, 200);
-      }
-      
+    if (!shotstackResponse.ok) {
+      console.error("Shotstack API error:", shotstackText);
       return new Response(
-        JSON.stringify({ error: errorMessage }),
-        {
-          status: lumaResponse.status,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        }
+        JSON.stringify({ error: "Failed to start video rendering: " + shotstackText.substring(0, 200) }),
+        { status: shotstackResponse.status, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    // Parse successful JSON response
-    let lumaData;
+    let shotstackData;
     try {
-      lumaData = JSON.parse(responseText);
+      shotstackData = JSON.parse(shotstackText);
     } catch (e) {
-      console.error("Failed to parse Luma response as JSON:", e);
+      console.error("Failed to parse Shotstack response:", e);
       return new Response(
         JSON.stringify({ error: "Invalid response from video service" }),
-        {
-          status: 500,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        }
+        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
+
+    const jobId = shotstackData.response?.id;
     
-    console.log("Luma Labs API response parsed:", JSON.stringify(lumaData));
-
-    const jobId = lumaData.id;
-
     if (!jobId) {
-      console.error("No job ID in Luma response:", lumaData);
+      console.error("No job ID in Shotstack response:", shotstackData);
       return new Response(
         JSON.stringify({ error: "Failed to get job ID from video service" }),
-        {
-          status: 500,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        }
+        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    console.log("Property walkthrough video generation started:", jobId);
-    console.log("- Using images:", firstSegment.startImage.substring(0, 50), "->", firstSegment.endImage.substring(0, 50));
+    console.log("=== PROPERTY WALKTHROUGH STARTED ===");
+    console.log("Job ID:", jobId);
+    console.log("Total images used:", imageUrls.length);
+    console.log("Estimated duration:", Math.round(totalDuration), "seconds");
 
     return new Response(
       JSON.stringify({
         success: true,
         jobId: jobId,
         message: "Property walkthrough video generation started",
-        totalSegments: segments.length,
-        estimatedTime: 120 * segments.length, // ~2 min per segment
+        totalImages: imageUrls.length,
+        estimatedDuration: Math.round(totalDuration),
+        estimatedTime: 60, // Shotstack is typically faster than Luma
+        provider: "shotstack"
       }),
-      {
-        status: 200,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      }
+      { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (error) {
     console.error("Error processing video generation request:", error);
@@ -232,10 +249,7 @@ Style: ${style || 'professional'}, elegant, 9:16 vertical social media format.`;
       JSON.stringify({
         error: error instanceof Error ? error.message : "Failed to process request",
       }),
-      {
-        status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      }
+      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }
 });

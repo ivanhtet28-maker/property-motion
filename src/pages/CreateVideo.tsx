@@ -83,7 +83,7 @@ export default function CreateVideo() {
         console.log(`Polling attempt ${attempts}/${maxAttempts} for job ${jobId}`);
         
         const { data, error: fnError } = await supabase.functions.invoke("check-video-status", {
-          body: { jobId },
+          body: { jobId, provider: "shotstack" },
         });
 
         if (fnError) {
