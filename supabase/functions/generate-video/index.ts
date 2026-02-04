@@ -112,53 +112,55 @@ Deno.serve(async (req) => {
     const streetAddress = addressParts[0]?.trim() || propertyData.address;
     const suburb = addressParts[1]?.trim() || '';
 
+    // Mobile-optimized text overlays (9:16 vertical format = 1080x1920)
     const textClips = [
-      // Property address - appears at start
+      // Property address - large, bold, bottom third for mobile thumb zone
       {
         asset: {
           type: "html",
-          html: `<div style="font-family: 'Inter', sans-serif; text-align: center; padding: 20px;">
-            <p style="font-size: 24px; color: white; text-shadow: 2px 2px 4px rgba(0,0,0,0.8); margin: 0; font-weight: 600;">${streetAddress}</p>
-            <p style="font-size: 18px; color: #e0e0e0; text-shadow: 1px 1px 3px rgba(0,0,0,0.8); margin: 5px 0 0 0;">${suburb}</p>
+          html: `<div style="font-family: 'Inter', sans-serif; text-align: center; padding: 24px 16px; background: linear-gradient(to top, rgba(0,0,0,0.8), rgba(0,0,0,0)); width: 100%;">
+            <p style="font-size: 42px; color: white; text-shadow: 3px 3px 6px rgba(0,0,0,0.9); margin: 0; font-weight: 700; line-height: 1.2;">${streetAddress}</p>
+            <p style="font-size: 28px; color: #e0e0e0; text-shadow: 2px 2px 4px rgba(0,0,0,0.8); margin: 12px 0 0 0; font-weight: 500;">${suburb}</p>
           </div>`,
-          width: 600,
-          height: 120
+          width: 1080,
+          height: 300
         },
-        start: 0.5,
-        length: 4,
+        start: 0.3,
+        length: 4.5,
         position: "bottom",
-        offset: { y: 0.1 },
+        offset: { y: 0 },
         transition: { in: "fade", out: "fade" }
       },
-      // Price and specs - appears in middle
+      // Price and specs - centered, prominent for mobile
       {
         asset: {
           type: "html",
-          html: `<div style="font-family: 'Inter', sans-serif; text-align: center; padding: 20px; background: rgba(0,0,0,0.6); border-radius: 12px;">
-            <p style="font-size: 32px; color: #FFD700; margin: 0; font-weight: 700;">$${Number(propertyData.price).toLocaleString()}</p>
-            <p style="font-size: 18px; color: white; margin: 10px 0 0 0;">${propertyData.beds} Bed · ${propertyData.baths} Bath</p>
+          html: `<div style="font-family: 'Inter', sans-serif; text-align: center; padding: 32px 24px; background: rgba(0,0,0,0.75); border-radius: 24px; backdrop-filter: blur(10px);">
+            <p style="font-size: 56px; color: #FFD700; margin: 0; font-weight: 800; text-shadow: 2px 2px 8px rgba(0,0,0,0.5);">$${Number(propertyData.price).toLocaleString()}</p>
+            <p style="font-size: 32px; color: white; margin: 16px 0 0 0; font-weight: 600;">${propertyData.beds} Bed · ${propertyData.baths} Bath</p>
           </div>`,
-          width: 400,
-          height: 120
+          width: 900,
+          height: 220
         },
         start: totalDuration / 2,
-        length: 3,
+        length: 3.5,
         position: "center",
         transition: { in: "fade", out: "fade" }
       },
-      // Call to action - end
+      // Call to action - end, thumb-friendly at bottom
       {
         asset: {
           type: "html",
-          html: `<div style="font-family: 'Inter', sans-serif; text-align: center; padding: 30px; background: linear-gradient(135deg, rgba(139,92,246,0.9), rgba(168,85,247,0.9)); border-radius: 16px;">
-            <p style="font-size: 24px; color: white; margin: 0; font-weight: 700;">Book Your Viewing Today</p>
+          html: `<div style="font-family: 'Inter', sans-serif; text-align: center; padding: 40px 32px; background: linear-gradient(135deg, rgba(139,92,246,0.95), rgba(168,85,247,0.95)); border-radius: 28px; box-shadow: 0 8px 32px rgba(139,92,246,0.4);">
+            <p style="font-size: 36px; color: white; margin: 0; font-weight: 700; text-transform: uppercase; letter-spacing: 2px;">Book Your Viewing</p>
           </div>`,
-          width: 450,
-          height: 100
+          width: 900,
+          height: 160
         },
-        start: totalDuration - 3,
-        length: 2.5,
+        start: totalDuration - 3.5,
+        length: 3,
         position: "center",
+        offset: { y: 0.15 },
         transition: { in: "slideUp", out: "fade" }
       }
     ];
