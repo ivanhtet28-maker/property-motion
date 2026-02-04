@@ -90,26 +90,53 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Build prompt for Luma Labs
-    const prompt = `Create a cinematic real estate property tour video. 
-Property: ${propertyData.address}
-Price: ${propertyData.price} | ${propertyData.beds} Bedrooms | ${propertyData.baths} Bathrooms
-${propertyData.description}
+    // Generate multiple video segments for property walkthrough
+    // Each segment transitions from one image to the next
+    const segments: { startImage: string; endImage: string; index: number }[] = [];
+    
+    // Create pairs of consecutive images for smooth transitions
+    for (let i = 0; i < imageUrls.length - 1; i++) {
+      segments.push({
+        startImage: imageUrls[i],
+        endImage: imageUrls[i + 1],
+        index: i
+      });
+    }
 
-Style: ${style || 'professional'}, smooth camera movements, elegant transitions between rooms, 
-highlight architectural details, warm inviting atmosphere, 9:16 vertical format for social media.`;
+    console.log(`Creating ${segments.length} video segments from ${imageUrls.length} images`);
 
-    console.log("Calling Luma Labs API for video generation...");
-    console.log("- Prompt:", prompt.substring(0, 200));
+    // Build prompts for each segment based on position in tour
+    const getSegmentPrompt = (index: number, total: number) => {
+      const position = index === 0 ? "opening" : index === total - 1 ? "closing" : "middle";
+      const cameraMove = index % 2 === 0 ? "slow dolly forward" : "gentle pan across";
+      
+      return `Cinematic real estate walkthrough transition. ${cameraMove}, smooth motion blur, 
+professional property tour feel. ${position === "opening" ? "Welcoming entrance shot." : 
+position === "closing" ? "Final reveal shot." : "Interior exploration."} 
+Style: ${style || 'professional'}, elegant, 9:16 vertical social media format.`;
+    };
 
-    // Use the first image as the keyframe for image-to-video generation
+    // Start generating first segment (we'll chain the rest)
+    const firstSegment = segments[0];
+    const prompt = getSegmentPrompt(0, segments.length);
+
+    console.log("Starting multi-image property walkthrough generation...");
+    console.log("- Total images:", imageUrls.length);
+    console.log("- Total segments to generate:", segments.length);
+    console.log("- First segment prompt:", prompt.substring(0, 150));
+
+    // Use frame0 (start) and frame1 (end) keyframes for image-to-image video
     const requestBody = {
       model: "ray-2",
       prompt: prompt,
       keyframes: {
         frame0: {
           type: "image",
-          url: imageUrls[0]
+          url: firstSegment.startImage
+        },
+        frame1: {
+          type: "image",
+          url: firstSegment.endImage
         }
       },
       aspect_ratio: "9:16",
@@ -118,7 +145,7 @@ highlight architectural details, warm inviting atmosphere, 9:16 vertical format 
 
     console.log("Request body:", JSON.stringify(requestBody));
 
-    // Call Luma Labs API to generate video
+    // Call Luma Labs API to generate first video segment
     const lumaResponse = await fetch(`${LUMA_API_URL}/generations`, {
       method: "POST",
       headers: {
@@ -182,14 +209,16 @@ highlight architectural details, warm inviting atmosphere, 9:16 vertical format 
       );
     }
 
-    console.log("Video generation job started:", jobId);
+    console.log("Property walkthrough video generation started:", jobId);
+    console.log("- Using images:", firstSegment.startImage.substring(0, 50), "->", firstSegment.endImage.substring(0, 50));
 
     return new Response(
       JSON.stringify({
         success: true,
         jobId: jobId,
-        message: "Video generation started",
-        estimatedTime: 120, // Luma typically takes ~2 minutes
+        message: "Property walkthrough video generation started",
+        totalSegments: segments.length,
+        estimatedTime: 120 * segments.length, // ~2 min per segment
       }),
       {
         status: 200,
