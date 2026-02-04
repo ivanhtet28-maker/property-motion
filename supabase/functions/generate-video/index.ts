@@ -1,4 +1,4 @@
-// Edge function for video generation using Shotstack API
+// Edge function for video generation using Luma Labs Dream Machine API
 /// <reference types="https://esm.sh/@supabase/functions-js/src/edge-runtime.d.ts" />
 
 const corsHeaders = {
@@ -24,9 +24,8 @@ interface GenerateVideoRequest {
   music: string;
 }
 
-// Shotstack API endpoint
-// Use stage API for sandbox keys, production for live keys
-const SHOTSTACK_API_URL = "https://api.shotstack.io/stage";
+// Luma Labs API endpoint
+const LUMA_API_URL = "https://api.lumalabs.ai/dream-machine/v1";
 
 Deno.serve(async (req) => {
   // Handle CORS preflight requests
@@ -35,12 +34,12 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const shotstackApiKey = Deno.env.get("SHOTSTACK_API_KEY");
+    const lumaApiKey = Deno.env.get("LUMA_API_KEY");
     
-    if (!shotstackApiKey) {
-      console.error("SHOTSTACK_API_KEY not configured");
+    if (!lumaApiKey) {
+      console.error("LUMA_API_KEY not configured");
       return new Response(
-        JSON.stringify({ error: "Video generation service not configured. Please add SHOTSTACK_API_KEY secret." }),
+        JSON.stringify({ error: "Video generation service not configured. Please add LUMA_API_KEY secret." }),
         {
           status: 500,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -91,111 +90,54 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Build Shotstack timeline with image clips
-    const clipDuration = 3; // seconds per image
-    const clips = imageUrls.slice(0, 10).map((url, index) => ({
-      asset: {
-        type: "image",
-        src: url,
-      },
-      start: index * clipDuration,
-      length: clipDuration,
-      effect: "zoomIn", // Ken Burns-style effect
-      transition: {
-        in: "fade",
-        out: "fade",
-      },
-    }));
+    // Build prompt for Luma Labs
+    const prompt = `Create a cinematic real estate property tour video. 
+Property: ${propertyData.address}
+Price: ${propertyData.price} | ${propertyData.beds} Bedrooms | ${propertyData.baths} Bathrooms
+${propertyData.description}
 
-    // Add text overlay with property info
-    const textClips = [
-      {
-        asset: {
-          type: "html",
-          html: `<p>${propertyData.address}</p>`,
-          css: "p { font-family: 'Montserrat'; color: #ffffff; font-size: 48px; text-align: center; text-shadow: 2px 2px 4px rgba(0,0,0,0.8); }",
-          width: 1000,
-          height: 100,
-        },
-        start: 0,
-        length: clips.length * clipDuration,
-        position: "bottom",
-        offset: { y: 0.15 },
-      },
-      {
-        asset: {
-          type: "html",
-          html: `<p>${propertyData.price} | ${propertyData.beds} Bed | ${propertyData.baths} Bath</p>`,
-          css: "p { font-family: 'Montserrat'; color: #ffffff; font-size: 36px; text-align: center; text-shadow: 2px 2px 4px rgba(0,0,0,0.8); }",
-          width: 1000,
-          height: 80,
-        },
-        start: 0,
-        length: clips.length * clipDuration,
-        position: "bottom",
-        offset: { y: 0.08 },
-      },
-    ];
+Style: ${style || 'professional'}, smooth camera movements, elegant transitions between rooms, 
+highlight architectural details, warm inviting atmosphere, 9:16 vertical format for social media.`;
 
-    // Build the Shotstack render request
-    const renderRequest = {
-      timeline: {
-        background: "#000000",
-        tracks: [
-          { clips: textClips }, // Text on top
-          { clips }, // Images below
-        ],
+    console.log("Calling Luma Labs API for video generation...");
+    console.log("- Prompt:", prompt.substring(0, 200));
+
+    // Use the first image as the keyframe for image-to-video generation
+    const requestBody = {
+      prompt: prompt,
+      keyframes: {
+        frame0: {
+          type: "image",
+          url: imageUrls[0]
+        }
       },
-      output: {
-        format: "mp4",
-        resolution: "hd", // 1280x720
-        aspectRatio: "9:16", // Vertical format for social media
-        fps: 30,
-      },
+      aspect_ratio: "9:16",
+      loop: false
     };
 
-    console.log("Calling Shotstack API for video render...");
-    console.log("- API URL:", `${SHOTSTACK_API_URL}/render`);
-    console.log("- Number of clips:", clips.length);
-    console.log("- Total duration:", clips.length * clipDuration, "seconds");
+    console.log("Request body:", JSON.stringify(requestBody));
 
-    // Call Shotstack API to render video
-    const shotstackResponse = await fetch(`${SHOTSTACK_API_URL}/render`, {
+    // Call Luma Labs API to generate video
+    const lumaResponse = await fetch(`${LUMA_API_URL}/generations`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "x-api-key": shotstackApiKey,
+        "Authorization": `Bearer ${lumaApiKey}`,
       },
-      body: JSON.stringify(renderRequest),
+      body: JSON.stringify(requestBody),
     });
 
-    // Get response as text first to handle HTML error pages
-    const responseText = await shotstackResponse.text();
-    console.log("Shotstack API response status:", shotstackResponse.status);
-    console.log("Shotstack API response (first 500 chars):", responseText.substring(0, 500));
+    const responseText = await lumaResponse.text();
+    console.log("Luma Labs API response status:", lumaResponse.status);
+    console.log("Luma Labs API response:", responseText.substring(0, 500));
 
-    // Check if response is HTML (error page)
-    if (responseText.startsWith("<!DOCTYPE") || responseText.startsWith("<html")) {
-      console.error("Shotstack API returned HTML instead of JSON");
-      return new Response(
-        JSON.stringify({ 
-          error: "Shotstack API returned an error page. Please verify your SHOTSTACK_API_KEY is valid.",
-          details: responseText.substring(0, 200),
-        }),
-        {
-          status: 500,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        }
-      );
-    }
-
-    if (!shotstackResponse.ok) {
-      console.error("Shotstack API error:", shotstackResponse.status, responseText);
+    if (!lumaResponse.ok) {
+      console.error("Luma Labs API error:", lumaResponse.status, responseText);
       
       let errorMessage = "Failed to start video generation";
       try {
         const errorJson = JSON.parse(responseText);
-        errorMessage = errorJson.message || errorJson.error || errorMessage;
+        errorMessage = errorJson.detail || errorJson.message || errorJson.error || errorMessage;
       } catch {
         errorMessage = responseText.substring(0, 200);
       }
@@ -203,18 +145,18 @@ Deno.serve(async (req) => {
       return new Response(
         JSON.stringify({ error: errorMessage }),
         {
-          status: shotstackResponse.status,
+          status: lumaResponse.status,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         }
       );
     }
 
     // Parse successful JSON response
-    let shotstackData;
+    let lumaData;
     try {
-      shotstackData = JSON.parse(responseText);
+      lumaData = JSON.parse(responseText);
     } catch (e) {
-      console.error("Failed to parse Shotstack response as JSON:", e);
+      console.error("Failed to parse Luma response as JSON:", e);
       return new Response(
         JSON.stringify({ error: "Invalid response from video service" }),
         {
@@ -224,12 +166,12 @@ Deno.serve(async (req) => {
       );
     }
     
-    console.log("Shotstack API response:", JSON.stringify(shotstackData));
+    console.log("Luma Labs API response parsed:", JSON.stringify(lumaData));
 
-    const jobId = shotstackData.response?.id;
+    const jobId = lumaData.id;
 
     if (!jobId) {
-      console.error("No job ID in Shotstack response:", shotstackData);
+      console.error("No job ID in Luma response:", lumaData);
       return new Response(
         JSON.stringify({ error: "Failed to get job ID from video service" }),
         {
@@ -246,7 +188,7 @@ Deno.serve(async (req) => {
         success: true,
         jobId: jobId,
         message: "Video generation started",
-        estimatedTime: 60, // Shotstack typically takes ~1 minute
+        estimatedTime: 120, // Luma typically takes ~2 minutes
       }),
       {
         status: 200,

@@ -1,4 +1,4 @@
-// Edge function to check Shotstack video render status
+// Edge function to check Luma Labs video generation status
 /// <reference types="https://esm.sh/@supabase/functions-js/src/edge-runtime.d.ts" />
 
 console.log("check-video-status: initializing...");
@@ -10,7 +10,7 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-const SHOTSTACK_API_URL = "https://api.shotstack.io/stage";
+const LUMA_API_URL = "https://api.lumalabs.ai/dream-machine/v1";
 
 Deno.serve(async (req) => {
   console.log("check-video-status: request received", req.method);
@@ -20,10 +20,10 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const shotstackApiKey = Deno.env.get("SHOTSTACK_API_KEY");
+    const lumaApiKey = Deno.env.get("LUMA_API_KEY");
 
-    if (!shotstackApiKey) {
-      console.error("SHOTSTACK_API_KEY not configured");
+    if (!lumaApiKey) {
+      console.error("LUMA_API_KEY not configured");
       return new Response(
         JSON.stringify({ error: "Video service not configured" }),
         { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -41,15 +41,18 @@ Deno.serve(async (req) => {
       );
     }
 
-    console.log("Checking Shotstack status for job:", jobId);
+    console.log("Checking Luma Labs status for job:", jobId);
 
-    const statusResponse = await fetch(`${SHOTSTACK_API_URL}/render/${jobId}`, {
+    const statusResponse = await fetch(`${LUMA_API_URL}/generations/${jobId}`, {
       method: "GET",
-      headers: { "x-api-key": shotstackApiKey },
+      headers: { 
+        "Authorization": `Bearer ${lumaApiKey}`,
+        "Content-Type": "application/json"
+      },
     });
 
     const responseText = await statusResponse.text();
-    console.log("Shotstack response:", statusResponse.status, responseText.substring(0, 300));
+    console.log("Luma response:", statusResponse.status, responseText.substring(0, 300));
 
     if (!statusResponse.ok) {
       return new Response(
@@ -59,22 +62,29 @@ Deno.serve(async (req) => {
     }
 
     const statusData = JSON.parse(responseText);
-    const renderStatus = statusData.response?.status;
-    const videoUrl = statusData.response?.url;
+    const lumaStatus = statusData.state;
+    const videoUrl = statusData.assets?.video;
 
-    console.log("Render status:", renderStatus, "URL:", videoUrl || "none");
+    console.log("Generation status:", lumaStatus, "URL:", videoUrl || "none");
 
+    // Luma states: dreaming, completed, failed
     let status: "processing" | "done" | "failed";
-    if (renderStatus === "done") {
+    if (lumaStatus === "completed") {
       status = "done";
-    } else if (renderStatus === "failed") {
+    } else if (lumaStatus === "failed") {
       status = "failed";
     } else {
+      // dreaming, queued, processing
       status = "processing";
     }
 
     return new Response(
-      JSON.stringify({ status, videoUrl: status === "done" ? videoUrl : null, rawStatus: renderStatus }),
+      JSON.stringify({ 
+        status, 
+        videoUrl: status === "done" ? videoUrl : null, 
+        rawStatus: lumaStatus,
+        failureReason: statusData.failure_reason || null
+      }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (error) {
