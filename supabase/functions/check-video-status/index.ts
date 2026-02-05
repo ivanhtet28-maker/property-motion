@@ -66,8 +66,61 @@ Deno.serve(async (req) => {
 
   try {
     const body = await req.json();
-    const { generationIds, videoId, audioUrl, musicUrl, agentInfo, propertyData } = body;
+    const { generationIds, videoId, audioUrl, musicUrl, agentInfo, propertyData, stitchJobId } = body;
 
+    // If stitchJobId is provided, we're polling Shotstack stitching job instead of Luma
+    if (stitchJobId) {
+      console.log("Checking Shotstack stitch job status:", stitchJobId);
+
+      const shotstackResponse = await fetch(
+        `https://api.shotstack.io/v1/render/${stitchJobId}`,
+        {
+          headers: {
+            "x-api-key": Deno.env.get("SHOTSTACK_API_KEY")!,
+          },
+        }
+      );
+
+      const shotstackData = await shotstackResponse.json();
+      const shotstackStatus = shotstackData.response?.status; // "queued", "fetching", "rendering", "saving", "done", "failed"
+      const videoUrl = shotstackData.response?.url;
+
+      console.log("Shotstack status:", shotstackStatus);
+
+      if (shotstackStatus === "done" && videoUrl) {
+        await updateVideoRecord(videoId, "completed", videoUrl, 100);
+        return new Response(
+          JSON.stringify({
+            status: "done",
+            videoUrl: videoUrl,
+            message: "Video stitched successfully!",
+          }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      } else if (shotstackStatus === "failed") {
+        await updateVideoRecord(videoId, "failed", null, 0, "Shotstack stitching failed");
+        return new Response(
+          JSON.stringify({
+            status: "failed",
+            message: "Video stitching failed",
+          }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      } else {
+        // Still stitching
+        return new Response(
+          JSON.stringify({
+            status: "stitching",
+            progress: 95,
+            message: "Stitching video clips...",
+            stitchJobId: stitchJobId,
+          }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+    }
+
+    // Otherwise, check Luma generation status
     if (!generationIds || !Array.isArray(generationIds) || generationIds.length === 0) {
       throw new Error("generationIds array is required");
     }
@@ -126,8 +179,8 @@ Deno.serve(async (req) => {
       );
     }
 
-    // All complete - start video stitching
-    console.log("All Luma clips ready, starting video stitching...");
+    // All complete - start Shotstack stitching
+    console.log("All Luma clips ready! Starting Shotstack stitching...");
 
     await updateVideoRecord(videoId, "processing", null, 85, "Stitching video clips...");
 
@@ -140,12 +193,12 @@ Deno.serve(async (req) => {
           "Authorization": `Bearer ${Deno.env.get("SUPABASE_ANON_KEY")}`,
         },
         body: JSON.stringify({
-          videoUrls,
-          propertyData,
-          audioUrl,
-          musicUrl,
-          agentInfo,
-          videoId,
+          videoUrls: videoUrls,
+          audioUrl: audioUrl,
+          musicUrl: musicUrl,
+          agentInfo: agentInfo,
+          propertyData: propertyData,
+          videoId: videoId,
         }),
       }
     );
@@ -153,22 +206,28 @@ Deno.serve(async (req) => {
     const stitchData = await stitchResponse.json();
 
     if (!stitchData.success) {
+      console.error("Stitching failed:", stitchData.error);
       await updateVideoRecord(videoId, "failed", null, 0, stitchData.error || "Video stitching failed");
-      throw new Error(stitchData.error || "Video stitching failed");
+      return new Response(
+        JSON.stringify({
+          status: "failed",
+          message: stitchData.error || "Failed to stitch video clips",
+          summary,
+        }),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
     }
 
-    // Video complete!
-    await updateVideoRecord(videoId, "completed", stitchData.videoUrl, 100);
-
-    console.log("Video generation complete:", stitchData.videoUrl);
+    // Shotstack job started - now poll for the stitch job
+    console.log("Stitching job started with Shotstack:", stitchData.jobId);
 
     return new Response(
       JSON.stringify({
-        status: "done",
-        videoUrl: stitchData.videoUrl,
-        duration: stitchData.duration,
-        clipsStitched: stitchData.clipsStitched,
-        message: "Video generated successfully",
+        status: "stitching",
+        progress: 90,
+        message: "Stitching video clips with Shotstack...",
+        stitchJobId: stitchData.jobId,
+        summary,
       }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );

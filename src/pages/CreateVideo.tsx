@@ -65,6 +65,8 @@ export default function CreateVideo() {
   const [generationIds, setGenerationIds] = useState<string[] | null>(null);
   const [videoRecordId, setVideoRecordId] = useState<string | null>(null);
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
+  const [videoUrls, setVideoUrls] = useState<string[]>([]); // All individual clips
+  const [stitchJobId, setStitchJobId] = useState<string | null>(null); // Shotstack stitching job
   const [generationData, setGenerationData] = useState<{
     generationIds: string[];
     totalClips: number;
@@ -93,6 +95,7 @@ export default function CreateVideo() {
     const maxAttempts = 120; // 10 minutes max (120 * 5 seconds) - Luma takes longer
     let attempts = 0;
     let consecutiveErrors = 0;
+    let currentStitchJobId: string | null = null; // Track stitching job ID
 
     const poll = async (): Promise<void> => {
       if (attempts >= maxAttempts) {
@@ -104,6 +107,14 @@ export default function CreateVideo() {
       attempts++;
 
       try {
+        // Safety check
+        if (!generationIds || generationIds.length === 0) {
+          console.error("No generation IDs to poll");
+          setError("Video generation failed to start. Please try again.");
+          setIsGenerating(false);
+          return;
+        }
+
         console.log(`Polling attempt ${attempts}/${maxAttempts} for ${generationIds.length} Luma clips`);
 
         const { data, error: fnError } = await supabase.functions.invoke("video-status", {
@@ -114,6 +125,7 @@ export default function CreateVideo() {
             musicUrl,
             agentInfo,
             propertyData,
+            stitchJobId: currentStitchJobId, // Pass stitchJobId if we're in stitching phase
           },
         });
 
@@ -137,13 +149,23 @@ export default function CreateVideo() {
 
         if (data.status === "done" && data.videoUrl) {
           setVideoUrl(data.videoUrl);
+          setVideoUrls(data.videoUrls || [data.videoUrl]); // Capture all clips
           setGeneratingProgress(100);
           setIsGenerating(false);
           setVideoReady(true);
           toast({
             title: "Video Ready!",
-            description: "Your property video has been generated successfully.",
+            description: "Your property video has been generated successfully!",
           });
+        } else if (data.status === "stitching") {
+          // Luma clips complete, now stitching with Shotstack
+          if (data.stitchJobId && !currentStitchJobId) {
+            currentStitchJobId = data.stitchJobId;
+            setStitchJobId(data.stitchJobId); // Also update state for UI
+            console.log("Stitching started with Shotstack:", data.stitchJobId);
+          }
+          setGeneratingProgress(data.progress || 90);
+          setTimeout(poll, 5000);
         } else if (data.status === "failed") {
           setError(data.message || "Video generation failed. Please try again.");
           setIsGenerating(false);
@@ -181,6 +203,8 @@ export default function CreateVideo() {
     setVideoReady(false);
     setError(null);
     setVideoUrl(null);
+    setVideoUrls([]);
+    setStitchJobId(null);
     setGenerationIds(null);
     setVideoRecordId(null);
     setGenerationData(null);
@@ -270,6 +294,11 @@ export default function CreateVideo() {
 
       // Handle the response
       if (data.success) {
+        // Validate required data
+        if (!data.generationIds || data.generationIds.length === 0) {
+          throw new Error("No generation IDs returned from server. Check edge function logs.");
+        }
+
         setGenerationIds(data.generationIds);
         if (data.videoId) {
           setVideoRecordId(data.videoId);
@@ -277,6 +306,7 @@ export default function CreateVideo() {
         }
         setGenerationData(data);
         console.log(`Started ${data.totalClips} Luma AI generations`);
+        console.log("Generation data received:", data);
 
         const estimatedMinutes = Math.ceil(data.estimatedTime / 60);
         toast({
@@ -462,6 +492,7 @@ export default function CreateVideo() {
             videoReady={videoReady}
             error={error}
             videoUrl={videoUrl}
+            videoUrls={videoUrls}
           />
         </div>
       </div>

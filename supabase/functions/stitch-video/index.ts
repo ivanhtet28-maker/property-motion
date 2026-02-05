@@ -1,11 +1,11 @@
 /// <reference types="https://esm.sh/@supabase/functions-js/src/edge-runtime.d.ts" />
 
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
+
+const SHOTSTACK_API_KEY = Deno.env.get("SHOTSTACK_API_KEY");
 
 interface StitchVideoRequest {
   videoUrls: string[];
@@ -35,208 +35,166 @@ Deno.serve(async (req) => {
   try {
     const { videoUrls, propertyData, audioUrl, musicUrl, agentInfo, videoId }: StitchVideoRequest = await req.json();
 
-    console.log("Starting video stitching for", videoUrls.length, "clips");
-
-    if (!videoUrls || videoUrls.length < 3 || videoUrls.length > 6) {
-      throw new Error("Need 3-6 video clips to stitch");
+    if (!videoUrls || videoUrls.length === 0) {
+      throw new Error("No video URLs provided for stitching");
     }
 
-    // Create temp directory for processing
-    const tempDir = await Deno.makeTempDir();
-    console.log("Created temp directory:", tempDir);
+    console.log("=== SHOTSTACK VIDEO STITCHING ===");
+    console.log("Stitching", videoUrls.length, "Luma AI clips");
 
-    try {
-      // Step 1: Download all video clips
-      console.log("Downloading video clips...");
-      const clipPaths: string[] = [];
+    // Calculate total duration (5 seconds per Luma clip)
+    const totalDuration = videoUrls.length * 5;
 
-      for (let i = 0; i < videoUrls.length; i++) {
-        const clipPath = `${tempDir}/clip_${i}.mp4`;
-        const response = await fetch(videoUrls[i]);
+    // Build video track with all Luma clips in sequence
+    const videoClips = videoUrls.map((url, index) => ({
+      asset: {
+        type: "video",
+        src: url,
+      },
+      start: index * 5, // Each clip is 5 seconds
+      length: 5,
+      transition: index > 0 ? {
+        in: "fade",
+        out: "fade",
+      } : undefined,
+    }));
 
-        if (!response.ok) {
-          throw new Error(`Failed to download clip ${i + 1}`);
-        }
+    // Build Shotstack edit
+    const edit = {
+      timeline: {
+        soundtrack: musicUrl ? {
+          src: musicUrl,
+          effect: "fadeInFadeOut",
+          volume: 0.3, // Background music at 30% volume
+        } : undefined,
+        tracks: [
+          // Voiceover track (if available)
+          ...(audioUrl ? [{
+            clips: [
+              {
+                asset: {
+                  type: "audio",
+                  src: audioUrl,
+                  volume: 1.0, // Full volume for voiceover
+                },
+                start: 0,
+                length: totalDuration,
+              },
+            ],
+          }] : []),
 
-        const buffer = await response.arrayBuffer();
-        await Deno.writeFile(clipPath, new Uint8Array(buffer));
-        clipPaths.push(clipPath);
-        console.log(`Downloaded clip ${i + 1}/${videoUrls.length}`);
-      }
+          // Agent overlay track (if available)
+          ...(agentInfo && agentInfo.name ? [{
+            clips: [
+              {
+                asset: {
+                  type: "html",
+                  html: `
+                    <div style="
+                      position: absolute;
+                      bottom: 40px;
+                      left: 50%;
+                      transform: translateX(-50%);
+                      background: rgba(0, 0, 0, 0.85);
+                      backdrop-filter: blur(10px);
+                      border-radius: 20px;
+                      padding: 15px 25px;
+                      display: flex;
+                      align-items: center;
+                      gap: 15px;
+                      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+                      border: 1px solid rgba(255, 255, 255, 0.1);
+                    ">
+                      ${agentInfo.photo ? `
+                        <img
+                          src="${agentInfo.photo}"
+                          style="
+                            width: 60px;
+                            height: 60px;
+                            border-radius: 50%;
+                            border: 2px solid white;
+                            object-fit: cover;
+                          "
+                        />
+                      ` : ''}
+                      <div style="color: white; font-family: Arial, sans-serif;">
+                        <div style="font-size: 18px; font-weight: bold; margin-bottom: 3px;">
+                          ${agentInfo.name}
+                        </div>
+                        ${agentInfo.phone ? `
+                          <div style="font-size: 14px; opacity: 0.9;">
+                            ${agentInfo.phone}
+                          </div>
+                        ` : ''}
+                        ${agentInfo.email ? `
+                          <div style="font-size: 12px; opacity: 0.7; margin-top: 2px;">
+                            ${agentInfo.email}
+                          </div>
+                        ` : ''}
+                      </div>
+                    </div>
+                  `,
+                  css: "",
+                  width: 1080,
+                  height: 1920,
+                },
+                start: 0,
+                length: totalDuration,
+                position: "bottom",
+              },
+            ],
+          }] : []),
 
-      // Step 2: Create FFmpeg concat file
-      const concatFilePath = `${tempDir}/concat.txt`;
-      const concatContent = clipPaths.map(path => `file '${path}'`).join("\n");
-      await Deno.writeTextFile(concatFilePath, concatContent);
+          // Video track with all Luma clips
+          {
+            clips: videoClips,
+          },
+        ],
+      },
+      output: {
+        format: "mp4",
+        resolution: "hd",
+        aspectRatio: "9:16",
+      },
+    };
 
-      // Step 3: Download audio files if provided
-      let audioPath: string | null = null;
-      let musicPath: string | null = null;
+    console.log("Sending stitch job to Shotstack...");
 
-      if (audioUrl) {
-        console.log("Downloading voiceover audio...");
-        audioPath = `${tempDir}/voiceover.mp3`;
-        const audioResponse = await fetch(audioUrl);
-        if (audioResponse.ok) {
-          const audioBuffer = await audioResponse.arrayBuffer();
-          await Deno.writeFile(audioPath, new Uint8Array(audioBuffer));
-        }
-      }
+    // Submit to Shotstack
+    const response = await fetch("https://api.shotstack.io/v1/render", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": SHOTSTACK_API_KEY!,
+      },
+      body: JSON.stringify(edit),
+    });
 
-      if (musicUrl) {
-        console.log("Downloading background music...");
-        musicPath = `${tempDir}/music.mp3`;
-        const musicResponse = await fetch(musicUrl);
-        if (musicResponse.ok) {
-          const musicBuffer = await musicResponse.arrayBuffer();
-          await Deno.writeFile(musicPath, new Uint8Array(musicBuffer));
-        }
-      }
-
-      // Step 4: Create text overlay filter for property details
-      const overlayText = `${propertyData.address}\\n${propertyData.price}\\n${propertyData.beds} bed | ${propertyData.baths} bath`;
-
-      // Step 5: Build FFmpeg command
-      const outputPath = `${tempDir}/final_video.mp4`;
-      const ffmpegArgs = [
-        "-f", "concat",
-        "-safe", "0",
-        "-i", concatFilePath,
-      ];
-
-      // Add audio inputs
-      if (musicPath) {
-        ffmpegArgs.push("-i", musicPath);
-      }
-      if (audioPath) {
-        ffmpegArgs.push("-i", audioPath);
-      }
-
-      // Build filter complex
-      const filters: string[] = [];
-
-      // Text overlay for property details (top)
-      filters.push(
-        `drawtext=text='${overlayText}':` +
-        `fontsize=32:fontcolor=white:` +
-        `x=(w-text_w)/2:y=40:` +
-        `box=1:boxcolor=black@0.7:boxborderw=10`
-      );
-
-      // Agent overlay (bottom) if provided
-      if (agentInfo) {
-        const agentText = `${agentInfo.name}\\n${agentInfo.phone}${agentInfo.email ? '\\n' + agentInfo.email : ''}`;
-        filters.push(
-          `drawtext=text='${agentText}':` +
-          `fontsize=24:fontcolor=white:` +
-          `x=(w-text_w)/2:y=h-120:` +
-          `box=1:boxcolor=black@0.8:boxborderw=10`
-        );
-      }
-
-      // Apply filters
-      ffmpegArgs.push("-vf", filters.join(","));
-
-      // Audio mixing
-      if (musicPath && audioPath) {
-        // Mix music (lower volume) with voiceover
-        ffmpegArgs.push(
-          "-filter_complex",
-          `[1:a]volume=0.2[music];[2:a]volume=1.0[voice];[music][voice]amix=inputs=2:duration=first[aout]`,
-          "-map", "0:v",
-          "-map", "[aout]"
-        );
-      } else if (musicPath) {
-        ffmpegArgs.push("-map", "0:v", "-map", "1:a", "-filter:a", "volume=0.3");
-      } else if (audioPath) {
-        ffmpegArgs.push("-map", "0:v", "-map", "1:a");
-      } else {
-        ffmpegArgs.push("-map", "0:v");
-      }
-
-      // Output settings
-      ffmpegArgs.push(
-        "-c:v", "libx264",
-        "-preset", "medium",
-        "-crf", "23",
-        "-c:a", "aac",
-        "-b:a", "192k",
-        "-shortest",
-        "-y",
-        outputPath
-      );
-
-      console.log("Running FFmpeg with args:", ffmpegArgs.join(" "));
-
-      // Step 6: Execute FFmpeg
-      const ffmpegProcess = new Deno.Command("ffmpeg", {
-        args: ffmpegArgs,
-        stdout: "piped",
-        stderr: "piped",
-      });
-
-      const { code, stdout, stderr } = await ffmpegProcess.output();
-
-      if (code !== 0) {
-        const errorOutput = new TextDecoder().decode(stderr);
-        console.error("FFmpeg error:", errorOutput);
-        throw new Error(`FFmpeg failed with code ${code}`);
-      }
-
-      console.log("FFmpeg completed successfully");
-
-      // Step 7: Upload final video to Supabase Storage
-      console.log("Uploading final video to storage...");
-
-      const finalVideo = await Deno.readFile(outputPath);
-      const fileName = `video-${videoId || Date.now()}.mp4`;
-
-      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-      const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-      const supabase = createClient(supabaseUrl, supabaseServiceKey);
-
-      const { data: uploadData, error: uploadError } = await supabase.storage
-        .from("video-assets")
-        .upload(`videos/${fileName}`, finalVideo, {
-          contentType: "video/mp4",
-          upsert: false,
-        });
-
-      if (uploadError) {
-        throw uploadError;
-      }
-
-      // Get public URL
-      const { data: urlData } = supabase.storage
-        .from("video-assets")
-        .getPublicUrl(`videos/${fileName}`);
-
-      const finalVideoUrl = urlData.publicUrl;
-      console.log("Video uploaded successfully:", finalVideoUrl);
-
-      // Get video duration
-      const duration = videoUrls.length * 5; // Each Luma clip is 5 seconds
-
-      return new Response(
-        JSON.stringify({
-          success: true,
-          videoUrl: finalVideoUrl,
-          fileName: fileName,
-          duration: duration,
-          clipsStitched: videoUrls.length,
-          message: "Video stitched successfully",
-        }),
-        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    } finally {
-      // Cleanup temp directory
-      try {
-        await Deno.remove(tempDir, { recursive: true });
-        console.log("Cleaned up temp directory");
-      } catch (err) {
-        console.error("Failed to cleanup temp directory:", err);
-      }
+    if (!response.ok) {
+      const error = await response.text();
+      throw new Error(`Shotstack API error: ${error}`);
     }
+
+    const data = await response.json();
+    const jobId = data.response?.id;
+
+    if (!jobId) {
+      throw new Error("No job ID returned from Shotstack");
+    }
+
+    console.log("Shotstack stitch job started:", jobId);
+
+    return new Response(
+      JSON.stringify({
+        success: true,
+        jobId: jobId,
+        message: "Video stitching started with Shotstack",
+        estimatedTime: 60, // ~60 seconds for stitching
+        totalClips: videoUrls.length,
+        duration: totalDuration,
+      }),
+      { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+    );
   } catch (error) {
     console.error("Error stitching video:", error);
     return new Response(

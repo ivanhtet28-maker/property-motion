@@ -45,6 +45,7 @@ interface RightPanelProps {
   videoReady: boolean;
   error: string | null;
   videoUrl?: string | null;
+  videoUrls?: string[];
 }
 
 export function RightPanel({
@@ -56,6 +57,7 @@ export function RightPanel({
   videoReady,
   error,
   videoUrl,
+  videoUrls = [],
 }: RightPanelProps) {
   const [isEditingScript, setIsEditingScript] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -94,7 +96,8 @@ Contact us today for a private inspection.`;
   const getProgressStatus = () => {
     if (generatingProgress < 20) return "Uploading photos...";
     if (generatingProgress < 80) return "Generating cinematic clips with Luma AI...";
-    if (generatingProgress < 95) return "Stitching video clips...";
+    if (generatingProgress < 90) return "Clips ready, starting stitching...";
+    if (generatingProgress < 95) return "Stitching clips with Shotstack...";
     return "Finalizing your video...";
   };
 
@@ -264,8 +267,8 @@ Contact us today for a private inspection.`;
             </div>
 
             {/* Download & Share */}
-            <Button 
-              variant="hero" 
+            <Button
+              variant="hero"
               className="w-full gap-2 shadow-lg shadow-primary/25"
               onClick={() => videoUrl && window.open(videoUrl, '_blank')}
               disabled={!videoUrl}
